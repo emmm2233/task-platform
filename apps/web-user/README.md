@@ -49,3 +49,23 @@ Vite + Vue 3 + TypeScript。首屏是**任务大厅**。
     dist/assets/index-*.css          1.78 kB │ gzip:  0.63 kB
     dist/assets/index-*.js          70.23 kB │ gzip: 28.15 kB
     ✓ built in 373ms
+
+## 端到端核验（可复跑）
+
+只验证"能构建"是不够的 —— 构建通过但代理配错、或前端把绝对地址写死，
+都要到真正联调时才暴露。这条链路已固化成一条命令：
+
+    pwsh -File scripts/verify-e2e.ps1
+
+它会起后端 jar + Vite dev server，然后**从【前端端口】打后端接口**。
+本机实测结果（2026-10-15）：
+
+    === 起后端 ===            后端 UP
+    === 起前端 ===            前端 UP
+    === ⭐ 从【前端端口】打后端接口（验证代理）===
+      ✅ GET :5174/api/v1/tasks?pageSize=2        → HTTP 200
+      ✅ GET :5174/api/v1/categories?level=1      → HTTP 200
+      ✅ GET :5174/src/main.ts                    → HTTP 200
+    ✅ 端到端通过：前端能经代理取到后端数据
+
+代理返回的是真实数据（taskId 2444 / DEV 软件开发），不是 mock。
