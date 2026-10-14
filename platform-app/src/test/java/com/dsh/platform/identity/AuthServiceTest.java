@@ -8,9 +8,12 @@ import com.dsh.platform.identity.service.AuthService;
 import com.dsh.platform.identity.service.SmsCodeService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
@@ -34,8 +37,28 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * </ul>
  */
 @SpringBootTest
+@org.junit.jupiter.api.TestInstance(org.junit.jupiter.api.TestInstance.Lifecycle.PER_CLASS)
 @Import(AuthServiceTest.FastClockConfig.class)
 class AuthServiceTest {
+
+    @Autowired
+    private StringRedisTemplate redis;
+
+    /**
+     * ⭐ 清掉限流计数。
+     *
+     * <p>限流状态存在 Redis，TTL 2 小时 —— 它<b>跨测试类、跨运行都活着</b>。
+     * 不清理的话，第二次跑测试就会撞上一轮留下的计数（本测试踩过两次：
+     * 一次是手机号由 SEQ 递推导致每轮同一批号码，一次是随机 IP 恰好撞车）。
+     * 用随机值只能降低概率，<b>确定性清理才根治</b>。
+     */
+    @BeforeAll
+    void clearRateLimitCounters() {
+        var keys = redis.keys("sms:limit:*");
+        if (keys != null && !keys.isEmpty()) {
+            redis.delete(keys);
+        }
+    }
 
     /** 用可快进时钟替换系统时钟，才能稳定验证「30 秒宽限期」这种时间边界。 */
     @TestConfiguration

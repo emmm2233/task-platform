@@ -147,6 +147,17 @@
                     <version>3.13.0</version>
                     <configuration>
                         <release>${maven.compiler.release}</release>
+                        <!--
+                          ⭐ 必须开 -parameters。
+                          没有它，Spring 无法通过反射拿到方法参数名 ——
+                          @PathVariable Long id 这类不写显式名字的写法会在运行时抛
+                          IllegalArgumentException: Name for argument of type ... not specified。
+                          ⚠️ Spring Boot 的 spring-boot-starter-parent 默认会设 <parameters>true</parameters>；
+                             本工程用自建父 pom（只 import BOM），**丢掉了这个默认值** ——
+                             与 T2 那个「repackage 没自动绑定」是同一类问题：
+                             自建父 pom 时，starter-parent 的默认构建设置必须逐条补回来。
+                        -->
+                        <parameters>true</parameters>
                         <annotationProcessorPaths>
                             <path>
                                 <groupId>org.projectlombok</groupId>

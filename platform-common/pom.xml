@@ -30,6 +30,18 @@
             <artifactId>jakarta.servlet-api</artifactId>
             <scope>provided</scope>
         </dependency>
+        <!--
+          需要 AccessDeniedException（方法级鉴权被拒时抛的那个）。
+          provided：运行时由 platform-app 的 spring-boot-starter-security 提供，
+          common 自己不该把整个安全框架拖进来。
+          ⚠️ 不引它的话，GlobalExceptionHandler 里的 @ExceptionHandler(AccessDeniedException.class)
+             会编译不过 —— 而那个处理器是必需的（否则兜底处理器会把 403 吞成 500）。
+        -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-core</artifactId>
+            <scope>provided</scope>
+        </dependency>
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>

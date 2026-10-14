@@ -87,6 +87,29 @@ public class GlobalExceptionHandler {
         return ApiResponse.fail(ErrorCode.PARAM_INVALID, "缺少必需的参数：" + e.getParameterName());
     }
 
+    /**
+     * ⭐ 方法级鉴权失败（{@code @PreAuthorize} 拒绝）必须转成 <b>403</b>，不能被兜底处理器吞掉。
+     *
+     * <p>为什么必须显式声明：下面那个 {@code @ExceptionHandler(Exception.class)} 会
+     * <b>抢先捕获</b> {@code AccessDeniedException}，于是方法级鉴权失败会被转成 500/系统繁忙，
+     * 而 Spring Security 的 {@code ExceptionTranslationFilter}（负责产出 403）根本轮不到执行。
+     *
+     * <p>表现极具误导性：接口"能访问"（HTTP 200），前端只看到"系统繁忙"，
+     * 既不知道是权限问题，也无从排查。本项目的 T6 测试就是这么发现它的
+     * —— 断言 403，实际拿到 200。
+     *
+     * <p>⚠️ 路径域（过滤链）的拒绝走 {@code accessDeniedHandler}，不经过这里；
+     * 两条路径都要能产出 403，只修一边是不够的。
+     */
+    @ExceptionHandler(org.springframework.security.access.AccessDeniedException.class)
+    public org.springframework.http.ResponseEntity<ApiResponse<Void>> handleAccessDenied(
+            org.springframework.security.access.AccessDeniedException e) {
+        log.warn("方法级鉴权拒绝: {}", e.getMessage());
+        return org.springframework.http.ResponseEntity
+                .status(org.springframework.http.HttpStatus.FORBIDDEN)
+                .body(ApiResponse.fail(ErrorCode.NO_PERMISSION));
+    }
+
     /** 兜底：真正的系统故障，记完整堆栈但⛔ 不把细节返回给客户端。 */
     @ExceptionHandler(Exception.class)
     public ApiResponse<Void> handleUnexpected(Exception e) {
