@@ -60,3 +60,10 @@ platform:
     docker-available: false
     redis-required: false     # T4 认证接入后置为 true
     mq-required: false        # T15/T29 接入后置为 true
+
+# ---- 接口文档（⛔ 仅开发环境打开；生产由 application.yml 的默认值关闭）----
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true

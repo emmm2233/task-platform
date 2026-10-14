@@ -16,7 +16,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * T2 · 迁移冒烟测试：验证 {@code db/migration/V1–V6} 能真正落到数据库上。
+ * T2 · 迁移冒烟测试：验证 {@code db/migration/V1–V7} 能真正落到数据库上。
  *
  * <p><b>⚠️ 环境偏差</b>：计划原写用 Testcontainers（需要 Docker），
  * 但本机未安装 Docker —— 改为直连<b>本机已在运行的 MySQL</b>，库名 {@code task_platform_test}。
@@ -37,7 +37,7 @@ class MigrationSmokeTest {
 
     /** 与 db/migration 实跑结果一致的期望值。 */
     private static final int EXPECTED_TABLES = 71;
-    private static final int EXPECTED_MIGRATIONS = 6;
+    private static final int EXPECTED_MIGRATIONS = 7;
 
     private static String url;
     private static MigrateResult migrateResult;
@@ -66,7 +66,7 @@ class MigrationSmokeTest {
     }
 
     @Test
-    @DisplayName("Flyway 能按序执行全部 6 个迁移，且无失败记录")
+    @DisplayName("Flyway 能按序执行全部 7 个迁移，且无失败记录")
     void flyway_applies_all_migrations() {
         assertThat(migrateResult.success).isTrue();
         assertThat(migrateResult.migrationsExecuted)

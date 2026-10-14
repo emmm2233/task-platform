@@ -32,9 +32,16 @@ mybatis-plus:
       #    软状态一律用业务字段表达（sys_user.status / cancelled_at、task.status 等）。
 
 springdoc:
+  # ⛔ 安全默认：关。任何 profile 下都先关掉，只有 dev 显式打开。
+  #    独立审计实测：此前 /v3/api-docs 与 /swagger-ui/index.html 在【未登录】下返回 200，
+  #    等于把完整接口表公开 —— 而它既无 profile 门控，放行名单又写死。
+  #    ⭐ 与 StartupSecretGuard、SecurityBaselineConfig 一样取"默认最严"：
+  #      漏配的后果必须是「用不了 Swagger」，而不是「接口表被公开」。
   api-docs:
+    enabled: false
     path: /v3/api-docs
   swagger-ui:
+    enabled: false
     path: /swagger-ui.html
 
 management:

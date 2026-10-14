@@ -49,6 +49,45 @@ public class SecurityBaselineConfig {
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
 
     /** 无需认证即可访问的路径（⛔ 新增必须经过评审）。 */
+    /**
+     * ⛔ Swagger / OpenAPI 只在【开发 profile】放行 —— 生产必须 401。
+     *
+     * <p>独立审计实测：此前这三个路径写在下面的无条件名单里，
+     * 未登录即可拿到完整接口表（/v3/api-docs 200、/swagger-ui/index.html 200）。
+     * ⭐ 治法与 springdoc 的 enabled 开关一致：**默认最严，dev 显式开**。
+     */
+    private static final String[] SWAGGER_ENDPOINTS = {
+            "/v3/api-docs/**",
+            "/swagger-ui/**",
+            "/swagger-ui.html"
+    };
+
+    @org.springframework.beans.factory.annotation.Value("${spring.profiles.active:dev}")
+    private String activeProfiles;
+
+    /**
+     * 实际放行名单：基础名单 + （仅当处于开发 profile 时）swagger 路径。
+     *
+     * <p>⚠️ 判定用"逐个 profile 精确比较"而不是 {@code contains("dev")} ——
+     * 后者会把 {@code devops} / {@code development} 这类名字也算成开发环境。
+     */
+    private String[] publicEndpoints() {
+        java.util.List<String> list = new java.util.ArrayList<>(java.util.List.of(PUBLIC_ENDPOINTS));
+        // ⛔ 用 allMatch 而不是 anyMatch —— 与 StartupSecretGuard 同一教训：
+        //    写成 anyMatch（"只要有一个是 dev 就放行"）时，--spring.profiles.active=dev,prod
+        //    会让 Swagger 在【混用了生产 profile】的情况下仍然开放。
+        //    ⭐ 安全判定一律取最严的一侧：只有【全部】profile 都是开发类，才放行 Swagger。
+        java.util.List<String> profiles = java.util.Arrays.stream(
+                        (activeProfiles == null ? "" : activeProfiles).split(","))
+                .map(String::trim).map(String::toLowerCase).filter(p -> !p.isEmpty()).toList();
+        boolean dev = !profiles.isEmpty() && profiles.stream()
+                .allMatch(p -> p.equals("dev") || p.equals("local") || p.startsWith("dev-"));
+        if (dev) {
+            list.addAll(java.util.List.of(SWAGGER_ENDPOINTS));
+        }
+        return list.toArray(new String[0]);
+    }
+
     private static final String[] PUBLIC_ENDPOINTS = {
             "/api/v1/health",
             // 注册/登录/发验证码/换发令牌必须公开（各自自带限流与锁定防护）
@@ -56,9 +95,6 @@ public class SecurityBaselineConfig {
             "/actuator/health",
             "/actuator/health/**",
             "/actuator/info",
-            "/v3/api-docs/**",
-            "/swagger-ui/**",
-            "/swagger-ui.html",
             // 支付渠道回调：靠验签而非登录态保护，必须放行（T18 实现验签）
             "/api/v1/pay/callback/**"
     };
@@ -80,7 +116,7 @@ public class SecurityBaselineConfig {
                 // JWT 过滤器要排在用户名密码过滤器之前
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(PUBLIC_ENDPOINTS).permitAll()
+                        .requestMatchers(publicEndpoints()).permitAll()
                         // ⭐ 大厅匿名浏览（用户 2026-10-15 拍板）：未登录可看分类与任务列表。
                         //    ⛔ 必须【按方法限定为 GET】—— PUBLIC_ENDPOINTS 是不分方法的 permitAll，
                         //       把 /api/v1/tasks 直接加进去会连带放行 POST，
