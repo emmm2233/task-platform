@@ -47,6 +47,8 @@ public class SecurityBaselineConfig {
 
     private final ObjectMapper objectMapper;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    /** ⭐ 判定"是不是开发环境"只认它，⛔ 不读 spring.profiles.active 属性（见 publicEndpoints）。 */
+    private final org.springframework.core.env.Environment environment;
 
     /** 无需认证即可访问的路径（⛔ 新增必须经过评审）。 */
     /**
@@ -62,27 +64,25 @@ public class SecurityBaselineConfig {
             "/swagger-ui.html"
     };
 
-    @org.springframework.beans.factory.annotation.Value("${spring.profiles.active:dev}")
-    private String activeProfiles;
-
     /**
      * 实际放行名单：基础名单 + （仅当处于开发 profile 时）swagger 路径。
      *
-     * <p>⚠️ 判定用"逐个 profile 精确比较"而不是 {@code contains("dev")} ——
-     * 后者会把 {@code devops} / {@code development} 这类名字也算成开发环境。
+     * <p>⛔⛔ <b>判定必须走 {@link ProfileGuard}（= 真实激活的 profile），
+     * 不能读 {@code spring.profiles.active} 属性。</b>
+     *
+     * <p>踩过的坑（独立审查用最小 Spring Boot 3.2.5 探针实测）：
+     * {@code application.yml} 写 {@code active: dev} 再配 {@code include: prod} 时，
+     * {@code getActiveProfiles()} 是 {@code [prod, dev]}，
+     * 而 {@code @Value("${spring.profiles.active:dev}")} <b>只看到 {@code [dev]}</b> ——
+     * 于是 Swagger 被当成开发环境匿名放行。{@code include} / {@code group} /
+     * {@code @ActiveProfiles} / {@code setAdditionalProfiles} 都能触发，
+     * 而命令行 {@code --spring.profiles.active=dev,prod} 反而正常。
+     *
+     * <p>⭐ 取最严一侧：<b>全部</b> profile 都是开发类才放行；空列表（无法判定）也<b>不放行</b>。
      */
     private String[] publicEndpoints() {
         java.util.List<String> list = new java.util.ArrayList<>(java.util.List.of(PUBLIC_ENDPOINTS));
-        // ⛔ 用 allMatch 而不是 anyMatch —— 与 StartupSecretGuard 同一教训：
-        //    写成 anyMatch（"只要有一个是 dev 就放行"）时，--spring.profiles.active=dev,prod
-        //    会让 Swagger 在【混用了生产 profile】的情况下仍然开放。
-        //    ⭐ 安全判定一律取最严的一侧：只有【全部】profile 都是开发类，才放行 Swagger。
-        java.util.List<String> profiles = java.util.Arrays.stream(
-                        (activeProfiles == null ? "" : activeProfiles).split(","))
-                .map(String::trim).map(String::toLowerCase).filter(p -> !p.isEmpty()).toList();
-        boolean dev = !profiles.isEmpty() && profiles.stream()
-                .allMatch(p -> p.equals("dev") || p.equals("local") || p.startsWith("dev-"));
-        if (dev) {
+        if (ProfileGuard.isDevLike(environment)) {
             list.addAll(java.util.List.of(SWAGGER_ENDPOINTS));
         }
         return list.toArray(new String[0]);

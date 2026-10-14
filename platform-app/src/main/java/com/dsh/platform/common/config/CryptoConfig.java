@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -33,12 +34,24 @@ public class CryptoConfig {
     @Value("${platform.crypto.phone-salt:" + DEV_SALT + "}")
     private String phoneSalt;
 
-    @Value("${spring.profiles.active:dev}")
-    private String profile;
+    /** ⭐ 判定"是不是开发环境"只认它，⛔ 不读 spring.profiles.active 属性。 */
+    private final Environment environment;
+
+    public CryptoConfig(Environment environment) {
+        this.environment = environment;
+    }
 
     @Bean
     public EnvelopeCipher envelopeCipher() {
-        if (DEV_KEK.equals(kek) && !profile.contains("dev") && !profile.contains("test")) {
+        // ⛔⛔ 这里曾写 `@Value("${spring.profiles.active:dev}")` + `profile.contains("dev")`，
+        //    两个毛病：
+        //    ① 读的是【配置属性】而不是真实激活的 profile ——
+        //       application.yml 写 active: dev 再配 include: prod 时，
+        //       真实 profile 是 [prod, dev]，而属性只显示 [dev]
+        //       ⇒ 生产用【开发默认 KEK】加密数据，且不报错（独立审查探针实测）；
+        //    ② contains("dev") 会把 devops / development 也算成开发环境。
+        //    ⭐ 现在与 StartupSecretGuard 共用 ProfileGuard：取真实值 + 全 dev 才算 dev + 空列表按最严。
+        if (DEV_KEK.equals(kek) && !ProfileGuard.isDevLike(environment)) {
             // ⛔ 宁可起不来，也不能用开发密钥加密生产数据
             throw new IllegalStateException(
                     "检测到非开发环境仍在使用默认 KEK。请通过 PLATFORM_KEK 注入（生产环境应来自 Vault/KMS）。");

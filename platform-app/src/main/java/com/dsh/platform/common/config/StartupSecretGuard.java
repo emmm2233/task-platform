@@ -8,7 +8,6 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 
 /**
  * 启动期密钥守卫 —— 让「漏配密钥」变成【起不来】，而不是【静默不安全】。
@@ -29,11 +28,9 @@ import java.util.Set;
 @Component
 public class StartupSecretGuard implements InitializingBean {
 
-    /** 视为开发环境的 profile 前缀；其余一律按生产标准校验。 */
-    private static final Set<String> DEV_PROFILES = Set.of("dev", "local", "test", "ci");
-
     // ⚠️ 这三个字面值必须与 application-dev.yml 里的默认值【完全一致】。
-    //    改了一处忘了另一处，守卫就会失效 —— 所以有单测钉住它们。
+    //    改了一处忘了另一处，守卫就会失效 —— 所以有单测钉住它们（见 StartupSecretGuardTest）。
+    //    ⭐ 「是不是开发环境」的判定已收敛到 ProfileGuard。
     static final String DEV_JWT_SECRET = "dev-only-jwt-secret-please-change-in-production-0123456789";
     static final String DEV_KEK = "ZGV2LW9ubHkta2VrLWRvLW5vdC11c2UtaW4tcHJvZCE=";
     static final String DEV_PHONE_SALT = "dev-only-phone-salt";
@@ -99,22 +96,19 @@ public class StartupSecretGuard implements InitializingBean {
     /**
      * 是否【全部】profile 都是开发 profile。
      *
-     * <p>⭐ 这里必须用 allMatch 而不是 anyMatch —— 踩过：
-     * 最初写成 anyMatch（"只要有一个是 dev 就放行"），
-     * 于是 {@code --spring.profiles.active=prod,dev} 可以<b>整体绕过守卫</b>，
-     * 而那正是最可能出现的误配形态（为了补配置而把 dev 也带上）。
+     * <p>⭐ 判定已收敛到 {@link ProfileGuard}：三处（本类 / SecurityBaselineConfig / CryptoConfig）
+     * 曾各写一份，其中两份读的是 {@code spring.profiles.active} <b>属性</b>而不是真实激活的 profile，
+     * 可被 {@code spring.profiles.include} / {@code group} / {@code @ActiveProfiles} 绕过。
      *
      * <p>⛔ 安全判定一律取<b>最严</b>的一侧：只要列表里出现任何非开发 profile，
      * 就按生产标准校验。宁可误拦，不可漏放。
      *
-     * <p>无激活 profile 时按 dev 处理（本地裸跑 {@code java -jar} 的情形）。
+     * <p>⛔ <b>无激活 profile 时按【生产】处理</b>（修复前是按 dev 放行）。
+     * 理由：{@code application.yml} 已写死 {@code spring.profiles.active: dev}，
+     * 所以空列表不可能是"本地裸跑 java -jar"，只可能是<b>生产漏配 profile</b>；
+     * 而按 dev 放行的后果是 jwt-secret 取公开默认值 —— 任何人都能签出 identity=ADMIN 的令牌。
      */
     private static boolean isDev(List<String> activeProfiles) {
-        if (activeProfiles == null || activeProfiles.isEmpty()) {
-            return true;
-        }
-        return activeProfiles.stream()
-                .map(p -> p.toLowerCase().split("-")[0])
-                .allMatch(DEV_PROFILES::contains);
+        return ProfileGuard.isDevLike(activeProfiles);
     }
 }

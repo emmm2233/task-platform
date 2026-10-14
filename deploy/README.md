@@ -23,8 +23,13 @@ powershell -File deploy\start-local-redis.ps1
 Get-Service MySQL84
 ```
 
-> 有 Docker 的机器：`docker compose -f deploy/docker-compose.dev.yml up -d`，并把
-> `application-dev.yml` 的 profile 换成 `dev,docker`。
+> 有 Docker 的机器：`docker compose -f deploy/docker-compose.dev.yml up -d`，
+> **profile 仍然是 `dev`** —— compose 把 3306/6379 发布到宿主机，`application-dev.yml` 直接可用。
+> ⛔ 不要再写 `dev,docker`（旧文档的说法）：仓库里**没有** `application-docker.yml`，
+> 该 profile 不提供任何配置，而 `StartupSecretGuard` 只把 `dev/local/test/ci` 视为开发 profile
+> ⇒ 带上它会因"开发默认密钥"**拒绝启动**（实测）。
+> ⚠️ compose 的 Redis 带口令（默认 `redis123456`），用到 Redis 的功能需再加
+> `--spring.data.redis.password=redis123456`。
 
 ### 2. 数据库
 

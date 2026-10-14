@@ -3,8 +3,13 @@
 #
 #  ⚠️ 环境偏差说明（本机无 Docker）：
 #     本文件默认走 local-mysql，连接**本机已在运行的 MySQL 8.4 服务**。
-#     若你的机器有 Docker，请改用 `--spring.profiles.active=dev,docker`，
-#     即使用 deploy/docker-compose.dev.yml 起的 MySQL 8.0.36。
+#     若你的机器有 Docker，先 `docker compose -f deploy/docker-compose.dev.yml up -d`，
+#     **profile 仍然是 dev** —— compose 把 3306/6379 发布到宿主机，本文件直接可用。
+#     ⛔ 不要再写 `dev,docker`（旧文档的说法）：仓库里【没有】application-docker.yml，
+#        该 profile 不提供任何配置；而 StartupSecretGuard 只把 dev/local/test/ci
+#        视为开发 profile ⇒ 带上一个未知 profile 会让应用因"开发默认密钥"拒绝启动（实测）。
+#     ⚠️ compose 的 Redis 带口令（默认 redis123456）：要用到 Redis 的功能（验证码/登录态）
+#        需再加 `--spring.data.redis.password=redis123456`，否则第一次使用会认证失败。
 # =====================================================================
 spring:
   datasource:

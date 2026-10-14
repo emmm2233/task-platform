@@ -2,7 +2,9 @@ package com.dsh.platform.common.config;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.core.io.ClassPathResource;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -97,10 +99,39 @@ class StartupSecretGuardTest {
     }
 
     @Test
-    @DisplayName("无激活 profile（裸跑 java -jar）按 dev 处理")
-    void no_profile_is_treated_as_dev() {
+    @DisplayName("⛔⛔ 无激活 profile（生产漏配 profile）必须按【生产】处理，不能按 dev 放行")
+    void no_profile_is_treated_as_production() {
+        // 踩过：原来这里断言"空列表按 dev 放行（裸跑 java -jar 的情形）"——
+        // 但 application.yml 里已写死 spring.profiles.active: dev，
+        // 所以裸跑 java -jar 拿到的是 [dev]，【不会】命中空列表。
+        // 真正会命中空列表的只有一种情况：生产环境漏配 profile
+        // （外部配置没写 active，或 SPRING_PROFILES_ACTIVE= 空串）。
+        // 按 dev 放行的后果：jwt-secret 取 application-dev.yml 里那个公开的默认值
+        // ⇒ 任何人都能签出 identity=ADMIN 的令牌。
         assertThat(StartupSecretGuard.violations(List.of(),
                 StartupSecretGuard.DEV_JWT_SECRET, StartupSecretGuard.DEV_KEK,
-                StartupSecretGuard.DEV_PHONE_SALT)).isEmpty();
+                StartupSecretGuard.DEV_PHONE_SALT))
+                .as("无法判定环境时必须取最严")
+                .hasSize(3);
+    }
+
+    @Test
+    @DisplayName("⭐⭐ 默认密钥字面量必须真的与 application-dev.yml 一致（读 yml，不是拿常量自比）")
+    void dev_default_literals_match_application_dev_yml() throws Exception {
+        // ⚠️ 本条修复前的写法是把 StartupSecretGuard.DEV_* 常量【自己】当参数传进 violations()，
+        //    从未读 application-dev.yml —— 于是"改了 yml 却忘了改常量"
+        //    会让守卫静默失效，而 8 个用例依旧全绿（正是本类要防的那类问题）。
+        String yml = new ClassPathResource("application-dev.yml")
+                .getContentAsString(StandardCharsets.UTF_8);
+
+        assertThat(yml)
+                .as("application-dev.yml 的 KEK 默认值必须与 StartupSecretGuard.DEV_KEK 一致")
+                .contains("${PLATFORM_KEK:" + StartupSecretGuard.DEV_KEK + "}");
+        assertThat(yml)
+                .as("application-dev.yml 的 jwt-secret 默认值必须与 StartupSecretGuard.DEV_JWT_SECRET 一致")
+                .contains("${PLATFORM_JWT_SECRET:" + StartupSecretGuard.DEV_JWT_SECRET + "}");
+        assertThat(yml)
+                .as("application-dev.yml 的 phone-salt 默认值必须与 StartupSecretGuard.DEV_PHONE_SALT 一致")
+                .contains("${PLATFORM_PHONE_SALT:" + StartupSecretGuard.DEV_PHONE_SALT + "}");
     }
 }
