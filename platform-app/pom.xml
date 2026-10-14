@@ -14,6 +14,29 @@
     <name>platform-app</name>
     <description>主应用：9 个限界上下文（identity/task/award/order/wallet/dispute/im/notify/admin）</description>
 
+    <properties>
+        <!--
+          ⭐ 测试必须连【测试库】，不能连 dev 库。
+
+          踩过的坑（独立审计实测）：此前 20 个 @SpringBootTest 用默认 dev profile，
+          读 application-dev.yml 里硬编码的 task_platform，而其中 3 个类的 @BeforeEach
+          执行的是【全库】语句（DELETE FROM wallet_txn / UPDATE wallet_account ...），
+          ⇒ 跑一次 mvn test 就清掉 dev 库的账本分录与全部用户余额。
+
+          这里用 Maven 属性 + surefire systemPropertyVariables 覆盖，
+          而不是加 src/test/resources/application-dev.yml ——
+          同名文件会让 test-classes 的版本【完全取代】main 版本，
+          连带丢掉 redis / jwt / platform.* 配置。
+
+          ⛔ CI 可通过 -Dtest.db.url=... 指向自己的库。
+        -->
+        <test.db.url>jdbc:mysql://127.0.0.1:3306/task_platform_test?useUnicode=true&amp;characterEncoding=UTF-8&amp;serverTimezone=Asia/Shanghai&amp;useSSL=false&amp;allowPublicKeyRetrieval=true&amp;rewriteBatchedStatements=true</test.db.url>
+        <test.db.username>root</test.db.username>
+        <test.db.password>123456</test.db.password>
+        <!-- 测试用独立的 Redis 库号：避免清掉【运行中应用】的短信限流计数 -->
+        <test.redis.database>15</test.redis.database>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>com.dsh.platform</groupId>
@@ -122,6 +145,23 @@
 
     <build>
         <plugins>
+            <!--
+              ⭐ 把测试指向【测试库 + 独立 Redis 库号】，而不是 dev 环境。
+              系统属性优先级高于 YAML，所以这里能盖住 application-dev.yml 的值。
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <systemPropertyVariables>
+                        <spring.datasource.url>${test.db.url}</spring.datasource.url>
+                        <spring.datasource.username>${test.db.username}</spring.datasource.username>
+                        <spring.datasource.password>${test.db.password}</spring.datasource.password>
+                        <spring.data.redis.database>${test.redis.database}</spring.data.redis.database>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
+
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
