@@ -6,7 +6,7 @@ settings:
 
 importers:
 
-  .:
+  apps/web-user:
     dependencies:
       vue:
         specifier: ^3.5.13
@@ -24,6 +24,8 @@ importers:
       vite:
         specifier: ^6.0.7
         version: 6.4.4
+
+  packages/shared: {}
 
 packages:
 

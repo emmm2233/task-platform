@@ -24,31 +24,41 @@ Vite + Vue 3 + TypeScript。首屏是**任务大厅**。
 `src/api/client.ts` 同时检查 HTTP 与信封里的 `success`，并把 `traceId` 透出到界面 ——
 用户报障时能直接给到日志，不用靠猜时间点。
 
-## ⚠️ 本机已知环境坑（换机器必读；有一处【未解决】）
+## ⚠️ pnpm 11 放行依赖构建脚本（曾经"配置写了但不生效"）
 
-1. **pnpm 11 默认拦截依赖的构建脚本**（供应链安全），且把"有脚本被忽略"
-   升级成 install 失败。esbuild 需要放平台二进制。
+**背景**：pnpm 11 默认拦截依赖的 postinstall（供应链安全），
+且把"有脚本被忽略"升级成 install 失败。esbuild 需要放平台二进制，必须放行。
 
-   ⛔ **未解决**：`pnpm build` 目前仍 exit 1（卡在 pnpm 自己的依赖状态前置检查）。
-   试过但【无效】的做法，别重复踩：
-   - `package.json` 里的 `pnpm.onlyBuiltDependencies` —— **pnpm 11 不读这个字段**；
-   - `.npmrc` 里的 `strict-dep-builds=false` —— 实测仍失败。
+### ✅ 正确做法（已修复，pnpm build 实测 exit 0）
 
-   ✅ **目前可用且已验证的构建方式**（两条命令都跑过，产物一致）：
+在**仓库根**的 `pnpm-workspace.yaml` 里：
 
-       pnpm rebuild esbuild                        # 放行 esbuild，放置平台二进制
-       node node_modules/vite/bin/vite.js build    # 直接调 vite，绕过 pnpm 前置检查
+    allowBuilds:
+      esbuild: true
 
-   ⚠️ 换机器时若 `pnpm build` 报 `ERR_PNPM_IGNORED_BUILDS`，先跑一次 `pnpm rebuild esbuild`。
-   彻底解决要在根目录建 pnpm workspace 并正确声明放行清单，**尚未做**。
+⛔ **键名是 `allowBuilds`，不是 `onlyBuiltDependencies`。**
+后者是旧键名/常见资料里的写法 —— 写了不报错、但**完全不生效**。
 
-## 已核验
+### 三个坑是叠在一起的，缺一都查不出来
 
-    ✓ 16 modules transformed
-    dist/index.html                  0.40 kB │ gzip:  0.28 kB
-    dist/assets/index-*.css          1.78 kB │ gzip:  0.63 kB
-    dist/assets/index-*.js          70.23 kB │ gzip: 28.15 kB
-    ✓ built in 373ms
+1. **键名不对**。用 `onlyBuiltDependencies` 时 install 照旧报
+   `ERR_PNPM_IGNORED_BUILDS`，而配置文件看起来"已经写对了"。
+2. **workspace 根找错了**。pnpm 会自动在项目目录下创建
+   `apps/web-user/pnpm-workspace.yaml`，于是它是一个**独立的 workspace 根** ——
+   **仓库根的配置根本管不到它**（pnpm 只认【最近】的 workspace 根）。
+   该文件已删除；现在根目录是唯一的 workspace 根。
+3. **配置写在两处**。`apps/web-user/.npmrc` 里也写了一份放行设置，已删除 ——
+   两处配置必然漂移。
+
+### 怎么发现的
+
+不靠猜：pnpm 自动生成的那个文件里**自己写着正确的键名**：
+
+    allowBuilds:
+      esbuild: set this to true or false
+
+⇒ **工具报错时，先看它自己生成了什么、提示了什么**，
+往往比按记忆或网上资料改要快。
 
 ## 端到端核验（可复跑）
 

@@ -1,0 +1,22 @@
+# ⭐ pnpm 11 的放行键是 allowBuilds，【不是】onlyBuiltDependencies。
+#
+# 这条是踩出来的：pnpm 自动创建了 apps/web-user/pnpm-workspace.yaml，里面写着
+#     allowBuilds:
+#       esbuild: set this to true or false
+# 也就是说【工具自己把正确的键名告诉了我】，而我先前按旧资料写了
+# onlyBuiltDependencies —— 配置写了、不报错、但不生效，
+# 表现是 "pnpm build 莫名其妙失败"，而根因与前端代码毫无关系。
+#
+# ⛔ 两个坑叠在一起会更难查：
+#   1. 键名不对（本文件先前的问题）
+#   2. apps/web-user 下曾被 pnpm 自动创建成【独立的 workspace 根】，
+#      于是仓库根的配置根本管不到它 —— pnpm 只认【最近】的 workspace 根。
+#      已删除那个文件，现在这里是唯一的 workspace 根。
+packages:
+  - 'apps/*'
+  - 'packages/*'
+
+# esbuild 需要放置平台二进制（@esbuild/win32-x64/esbuild.exe）。
+# 默认拦截依赖构建脚本是 pnpm 的供应链安全策略，放行要显式声明。
+allowBuilds:
+  esbuild: true
