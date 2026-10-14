@@ -96,3 +96,52 @@ curl.exe -i http://127.0.0.1:8080/api/v1/account/profile   # 期望 401 + 统一
 | **只有 `slf4j-api` 时 MDC 退化为 NOP** | `MDC.put()` 静默无效 → traceId 恒空，测试假失败 | 测试作用域加 `logback-classic` |
 | **每个测试各调一次 `migrate()`** | 测试之间互相依赖执行顺序，没调的那个看到空库 | `@BeforeAll` 里 `clean` + `migrate` **一次**，其余测试只断言 |
 | **MockMvc 通过 ≠ 真实 HTTP 通过** | 两者对错误响应/容器错误页的处理不同 | 关键端点补一次真实 HTTP 验证（用 curl） |
+
+---
+
+## 应用最小权限账号（create-app-account.sql）—— 已实测生效
+
+背景：设计文档 §5.8.4 / S4 / §5.8.6 三处声称「审计表在数据库账号层面收回 UPDATE/DELETE」，
+但独立审计实测发现【这条控制并不存在】：库里只有 root 一个账号、应用以 root 连库、
+零触发器，仓库自带的 HashChainTest 就能 UPDATE/DELETE 审计表。
+
+V7 已把 sys_audit_log 的表注释订正为如实描述；本脚本把那条控制变成真的。
+
+### 实测结果（2026-10-15）
+
+    ✅ SELECT sys_audit_log   → 成功
+    ✅ INSERT sys_audit_log   → 成功        ← 审计写入路径仍然可用
+    ✅ DELETE sys_audit_log   → 权限被拒
+    ✅ UPDATE sys_audit_log   → 权限被拒
+    ✅ DELETE wallet_txn      → 权限被拒
+    ✅ UPDATE wallet_txn      → 权限被拒
+    ✅ DELETE credit_log      → 权限被拒
+    ✅ DELETE task（对照组）  → 成功        ← ⭐ 这一条不可省
+
+⭐ 对照组的意义：只测「DELETE 被拒」的话，一个【连不上库的账号】也会全部通过。
+必须同时证明「该能做的确实能做」，否则测的是「账号坏了」而不是「权限收窄了」。
+
+### 三个必须记住的操作陷阱（都是实测踩出来的）
+
+1. 【库级授权无法用表级 REVOKE 收回】。脚本第一版写成
+   GRANT ... ON task_platform.*  +  REVOKE ... ON task_platform.sys_audit_log，
+   直接报 ERROR 1147: There is no such grant defined ... on table。
+   ⇒ 必须【一开始就逐表授权】（脚本里用 information_schema 生成 GRANT 语句）。
+
+2. 【账号要同时建 % / localhost / 127.0.0.1】。
+   只建 % 时从本机连接会落到 localhost，实测报 1045。
+
+3. 【判定必须按错误码，不能按文案】：
+   Access denied(1045 认证失败)  ≠  command denied(1142/1143 授权拒绝)。
+   用文案匹配会把「账号连不上」误判成「权限收窄成功」—— 这个假阳性实测发生过。
+
+### ⚠️ 尚未生效的部分（如实记录）
+
+application-dev.yml 里应用的仍是 root/123456。
+⇒ 【本地开发环境下这条控制建了但没生效】—— 应用以 root 连库，UPDATE/DELETE 依然可行。
+要让它在预发/生产生效，必须注入：
+
+    PLATFORM_DB_USERNAME=task_app
+    PLATFORM_DB_PASSWORD=<强口令>
+
+⛔ 不要只看「账号建好了」就以为控制生效 —— 关键在应用是否真的用它连库。
