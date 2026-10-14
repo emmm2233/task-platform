@@ -51,6 +51,21 @@ export function check(ctx) {
   });
   const violations = [];
 
+  // ⛔ 一条引用都没抽到 = 这道门禁实际上没在工作。
+  //   触发方式（都不是假设）：把引用写进 ``` 代码块、去掉反引号、改成大写，
+  //   或者 extraDocFiles 配置丢了 —— 此时 refs 为空、零违规、绿灯。
+  //   ⭐ 与门禁① 的 nothing-checked、门禁⑤ 的 registry-empty 同一原则：
+  //     "没检查到"必须报出来，而不是当成"检查通过"。
+  if (refs.length === 0) {
+    violations.push({
+      rule: 'ddl-vs-doc/nothing-checked',
+      file: ctx.docsDir,
+      message: '文档里一条 `表.列` 引用都没有抽到 —— 这道门禁实际上没在工作',
+      hint: '检查文档写法（需反引号包裹的小写 表.列）、ctx.docsDir 与 extraDocFiles 配置；'
+          + '门禁静默失效比误报更危险',
+    });
+  }
+
   for (const r of refs) {
     const key = `${r.table}.${r.column}`;
     // ⚠️ 文件名而非“表.列”：curl.exe / check.mjs / app.jar …（否则全是误报）

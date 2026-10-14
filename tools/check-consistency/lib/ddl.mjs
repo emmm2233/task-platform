@@ -13,6 +13,7 @@ const NON_COLUMN = /^(PRIMARY\s+KEY|UNIQUE\s+KEY|UNIQUE\s+INDEX|KEY|INDEX|CONSTR
 /**
  * @param {string[]} sources 形如 [{file, text}]
  * @returns {{tables: Map<string, {name:string,file:string,columns:string[],indexes:string[],constraints:string[]}>}}
+ * @throws {Error} 括号不配平等解析失败 —— ⛔ 必须是硬错误，不能静默跳过
  */
 export function parseDdl(sources) {
   const tables = new Map();
@@ -28,7 +29,18 @@ export function parseDdl(sources) {
       const bodyStart = m.index + m[0].length;
       const bodyEnd = matchParen(cleaned, bodyStart - 1);
       if (bodyEnd < 0) {
-        continue;
+        // ⛔⛔ 这里绝【不能】写成 continue。
+        //   静默跳过整张表的后果：该表从五道门禁里整体消失 ——
+        //   门禁①不再校验它的字段、门禁③不再要求它有接口，
+        //   于是"表里有而接口写错"这类缺陷全部变成绿灯。
+        //   （反向验证实测过：只注入一个不存在的属性 → 门禁报错；
+        //     同一个注入 + 把这行改成 continue 的括号不配平 → 0 违规。
+        //     即"解析失败"会把"真缺陷"一起藏起来。）
+        //   ⭐ 与门禁①的 nothing-checked 同一原则：解析失败是硬错误。
+        throw new Error(
+          `DDL 解析失败：${file} 中 CREATE TABLE \`${name}\` 的括号不配平（缺少或多余括号/引号）。` +
+            ' 这会让整张表从所有一致性门禁里消失，必须先修 DDL。',
+        );
       }
       const body = cleaned.slice(bodyStart, bodyEnd);
 
@@ -62,17 +74,94 @@ export function parseDdl(sources) {
 
       tables.set(name, { name, file, columns, indexes, constraints });
     }
+
+    // ⭐ 前向迁移的新增列：ALTER TABLE `t` ADD COLUMN `c` ...
+    //   没有这一步，第二次"加一列"的迁移就会让门禁①②对**合法的新列**误报
+    //   （V7 已确立"只 ALTER、不改历史迁移"的先例）——
+    //   而误报多的门禁一定会被关掉，或被人往 allowlist 里塞条目。
+    applyAlterAddColumns(cleaned, tables);
+  }
+
+  if (tables.size === 0) {
+    // ⛔ 一张表都没解析出来 = 这道门禁没在工作
+    throw new Error('DDL 解析失败：没有解析出任何 CREATE TABLE，检查 db/migration 路径与文件扩展名');
   }
 
   return { tables };
 }
 
-/** 移除 `-- ...` 行注释（不动字符串里的 `--`，够用即可） */
+/**
+ * 收集 `ALTER TABLE ... ADD [COLUMN] ...` 新增的列，追加到对应表上。
+ *
+ * <p>⛔ 只认列：`ADD CONSTRAINT/KEY/INDEX/UNIQUE/PRIMARY/FOREIGN` 都不会被匹配
+ * （它们后面紧跟的不是反引号标识符，或显式带关键字）。
+ */
+function applyAlterAddColumns(cleaned, tables) {
+  const alterRe = /ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?`([^`]+)`/gi;
+  let m;
+  while ((m = alterRe.exec(cleaned)) !== null) {
+    const table = tables.get(m[1]);
+    if (!table) {
+      continue; // 该表没有 CREATE TABLE（夹具/手工表），无从追加
+    }
+    const semi = cleaned.indexOf(';', m.index);
+    const stmt = cleaned.slice(m.index, semi < 0 ? cleaned.length : semi);
+    const addRe = /ADD\s+(?:COLUMN\s+)?`([^`]+)`/gi;
+    let a;
+    while ((a = addRe.exec(stmt)) !== null) {
+      if (!table.columns.includes(a[1])) {
+        table.columns.push(a[1]);
+      }
+    }
+  }
+}
+
+/**
+ * 移除 `-- ...` 行注释。
+ *
+ * <p>⛔ 必须**只在引号外**生效：DDL 里 `COMMENT 'rate--flag'` 这类字面量很常见，
+ * 无脑 `replace(/--.*$/, '')` 会把引号切掉一半，导致括号/引号配对失败 ——
+ * 而配对失败会顺着 parseDdl 的硬错误路径直接让门禁整体失败（或更早版本里静默丢表）。
+ *
+ * <p>同时保留字符串里的转义（`''` 与 `\'`），否则引号状态会误判。
+ */
 function stripLineComments(text) {
-  return text
-    .split(/\r?\n/)
-    .map((l) => l.replace(/--.*$/, ''))
-    .join('\n');
+  let out = '';
+  let inStr = null;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inStr) {
+      out += c;
+      if (c === '\\' && inStr === "'") {
+        out += text[i + 1] ?? '';
+        i++;
+        continue;
+      }
+      if (c === inStr) {
+        if (text[i + 1] === inStr) {
+          out += text[i + 1];
+          i++;
+          continue;
+        }
+        inStr = null;
+      }
+      continue;
+    }
+    if (c === "'" || c === '"') {
+      inStr = c;
+      out += c;
+      continue;
+    }
+    if (c === '-' && text[i + 1] === '-') {
+      while (i < text.length && text[i] !== '\n') {
+        i++;
+      }
+      out += '\n';
+      continue;
+    }
+    out += c;
+  }
+  return out;
 }
 
 /** 从 open 位置（指向 '('）找到配对的 ')' 的下标，考虑嵌套与字符串 */
@@ -82,10 +171,14 @@ function matchParen(s, openIdx) {
   for (let i = openIdx; i < s.length; i++) {
     const c = s[i];
     if (inStr) {
-      if (c === '\\') {
+      if (c === '\\' && inStr === "'") {
         i++;
       } else if (c === inStr) {
-        inStr = null;
+        if (s[i + 1] === inStr) {
+          i++; // '' 转义
+        } else {
+          inStr = null;
+        }
       }
       continue;
     }

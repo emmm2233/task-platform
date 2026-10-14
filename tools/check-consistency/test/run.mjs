@@ -69,34 +69,59 @@ for (const name of CHECKERS) {
     continue;
   }
 
-  for (const kind of ['good', 'bad']) {
-    const dir = join(FIXTURES, name, kind);
-    if (!existsSync(dir)) {
-      bad(`${name}/${kind} 夹具缺失`);
-      continue;
-    }
+  // 夹具目录按前缀决定"期望什么"，一套循环覆盖三类：
+  //   good*       —— 必须 0 违规（否则是误报，团队会很快把门禁关掉）
+  //   bad*        —— 必须 ≥1 违规（否则门禁是摆设）
+  //   must-fail*  —— 必须【响亮地失败】：抛异常 或 ≥1 违规
+  //                 ⭐ 专防"解析本身悄悄失败"：产物没解析出来 ⇒ 没东西可校验 ⇒ 零违规 ⇒ 绿灯。
+  //                 实测过的真实形态：括号不配平让整张表从五道门禁里消失，
+  //                 同一个"字段不存在"的注入从"报错"变成"0 违规"。
+  const fixRoot = join(FIXTURES, name);
+  const dirs = existsSync(fixRoot)
+    ? readdirSync(fixRoot, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort()
+    : [];
+  if (dirs.length === 0) {
+    bad(`${name} 一个夹具都没有`);
+  }
+
+  for (const dirName of dirs) {
+    const dir = join(fixRoot, dirName);
+    const expectFailLoudly = dirName.startsWith('must-fail');
     let violations;
     try {
       violations = mod.check(contextFor(dir)) || [];
     } catch (e) {
-      bad(`${name}/${kind} 执行抛异常`, e.message);
+      if (expectFailLoudly) {
+        ok(`${name}/${dirName} 解析失败即硬错误`, `(抛异常：${String(e.message).slice(0, 56)}…)`);
+      } else {
+        bad(`${name}/${dirName} 执行抛异常`, e.message);
+      }
       continue;
     }
-    if (kind === 'good') {
-      if (violations.length === 0) {
-        ok(`${name}/good 零违规`);
+    if (expectFailLoudly) {
+      if (violations.length > 0) {
+        ok(`${name}/${dirName} 拒绝静默通过`, `(报出 ${violations.length} 条，例：${violations[0].rule})`);
       } else {
-        bad(`${name}/good 出现误报（${violations.length} 条）`,
+        bad(`${name}/${dirName} 静默通过了 —— 解析失败被当成"检查通过"`);
+      }
+      continue;
+    }
+    if (dirName.startsWith('good')) {
+      if (violations.length === 0) {
+        ok(`${name}/${dirName} 零违规`);
+      } else {
+        bad(`${name}/${dirName} 出现误报（${violations.length} 条）`,
             violations.map(v => `${v.rule}: ${v.message}`).slice(0, 3).join('\n       '));
       }
     } else {
       if (violations.length > 0) {
-        ok(`${name}/bad 抓到违规`, `(${violations.length} 条，例：${violations[0].rule})`);
+        ok(`${name}/${dirName} 抓到违规`, `(${violations.length} 条，例：${violations[0].rule})`);
       } else {
-        bad(`${name}/bad 未抓到任何违规 —— 门禁形同虚设`);
+        bad(`${name}/${dirName} 未抓到任何违规 —— 门禁形同虚设`);
       }
     }
   }
+
   console.log('');
 }
 

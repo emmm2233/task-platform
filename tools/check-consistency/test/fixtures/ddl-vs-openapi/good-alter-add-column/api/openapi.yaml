@@ -1,0 +1,20 @@
+openapi: 3.0.3
+info:
+  title: 正向夹具：ALTER TABLE 新增的列必须被认成真实列
+  version: 1.0.0
+paths:
+  /tasks:
+    get:
+      operationId: listTasks
+      responses:
+        '200':
+          description: ok
+components:
+  schemas:
+    Task:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        title: { type: string }
+        escrowAmount: { type: string }
+        escrowStatus: { type: string }

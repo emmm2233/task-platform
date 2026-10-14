@@ -17,7 +17,7 @@
 cd tools/check-consistency
 pnpm install        # 只有 yaml 一个依赖
 
-pnpm test           # 门禁自测：good 夹具必须 0 违规、bad 夹具必须抓到
+pnpm test           # 门禁自测：good* 必须 0 违规、bad* 必须抓到、must-fail* 必须响亮失败
 pnpm check          # 对真实产物执行五道门禁
 node check.mjs --warn   # 违规只警告不失败（本地调试用，⛔ 不要用到 CI）
 ```
@@ -56,8 +56,13 @@ EscrowInfo:
 ### 2. 「bad 夹具必须报错」比「good 夹具通过」重要
 
 我们真正要防的是**门禁悄悄失效**，不是它误报。
-所以 `test/run.mjs` 对每个检查器都跑 good/bad 两组：
-good 必须 0 违规，**bad 必须 ≥1 违规**。
+所以 `test/run.mjs` 按目录名前缀决定「期望什么」，共三类：
+
+| 夹具目录 | 期望 | 防的是什么 |
+|---|---|---|
+| `good*` | **0 违规** | 误报（误报多的门禁一定会被关掉） |
+| `bad*` | **≥1 违规** | 门禁是摆设 |
+| `must-fail*` | **抛异常 或 ≥1 违规**（响亮失败即可） | ⭐ **解析层悄悄失败**：产物没解析出来 ⇒ 没东西可校验 ⇒ 零违规 ⇒ 绿灯 |
 
 ### 3. ⭐ 验收标准不是「门禁通过」，而是「故意注入缺陷它必须报错」
 
@@ -69,6 +74,34 @@ good 必须 0 违规，**bad 必须 ≥1 违规**。
 | `EscrowInfo` 被当成视图模型跳过 | 把 `escrowNo` 改成 `escrowNoTypo`，门禁**没报错** | 加「剥实体视图后缀再匹配」；⛔ 只剥 `Info`/`Summary`/`Detail`，**不剥** `Request`/`Result`（`AwardResult` 是操作 DTO，曾被错映射到 `award` 表） |
 
 修完后实测 **4/4 命中**：文档引用改坏 · README 注入 · OpenAPI 字段拼错 · 事件消费方填错模块。
+
+### 4. ⛔⛔ 解析失败必须是硬错误，不能 `continue`
+
+第二轮独立审查**实测复现**了一类更隐蔽的失效（`must-fail-*` 夹具就是为它立的）：
+
+```js
+// lib/ddl.mjs —— 修复前的写法
+const bodyEnd = matchParen(cleaned, bodyStart - 1);
+if (bodyEnd < 0) { continue; }        // ⛔ 静默跳过整张表
+```
+
+| 注入 | 修复前 | 修复后 |
+|---|---|---|
+| 往 schema 加一个不存在的属性 | 门禁① 报错 ✅ | 报错 ✅ |
+| **同一个注入** + 让那张表的括号不配平 | **0 违规 · exit 0** ❌ | **exit 1**（`checker-crashed` + 指名文件与表）✅ |
+
+为什么危险：表从解析结果里消失后，门禁①不再校验它的字段、门禁③不再要求它有接口 ——
+**「解析失败」会把「真缺陷」一起藏起来**。所以：
+
+- `parseDdl` 遇到括号不配平 **直接 throw**（由 `check.mjs` 转成 `checker-crashed` 违规）；
+- 一张表都没解析出来也 throw（防门禁③ 空转）；
+- 门禁② 补 `nothing-checked`：`refs` 为空即报「这道门禁没在工作」，与门禁①/⑤ 同规格。
+
+同批修掉的两个**误报源**（误报同样会让门禁被关掉）：
+
+- `--` 注释剥离改为**只在引号外**生效（`COMMENT 'rate--flag'` 这类字面量以前会被切掉一半引号）；
+- 支持 `ALTER TABLE ... ADD COLUMN`（前向迁移的标准写法，不认就会对**合法的新列**误报；
+  V7 已确立「只 ALTER、不改历史迁移」的先例）。
 
 ## 目录结构
 
@@ -86,8 +119,8 @@ tools/check-consistency/
 │   └── fs.mjs                文件遍历、命名转换、单复数
 ├── checkers/                 五道门禁，各导出 check(ctx) → Violation[]
 └── test/
-    ├── run.mjs               自测运行器（good/bad 双夹具）
-    └── fixtures/             每道门禁一组 good/bad 夹具
+    ├── run.mjs               自测运行器（按目录名前缀：good* / bad* / must-fail*）
+    └── fixtures/             每道门禁的夹具；must-fail* 验「解析失败必须响亮失败」
 ```
 
 ## 文档解析的 4 类误报过滤（② 的关键）
