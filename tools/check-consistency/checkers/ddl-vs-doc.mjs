@@ -16,6 +16,26 @@ import { extractInsertRows, unquote } from '../lib/sql.mjs';
  * ⚠️ 为控制误报，先按精确规则排除「配置键 / 文件名 / 约束名 / 历史引述」，
  *    详见 lib/docs.mjs 的注释。误报多的门禁一定会被关掉。
  */
+/**
+ * ⚠️ 文件名后缀：形如 curl.exe / check.mjs / app.jar 的引用会被「表.列」提取器
+ * 误当成"某表的某列"，报 unknown-table。
+ *
+ * ⭐ 为什么用"认识扩展名"而不是把 curl 登记进 allowlist：
+ *   扩展名是**有限且稳定**的集合，一次写清就永久消除这一整类误报；
+ *   而 allowlist 是逐个累加的 —— 每提到一个新工具就要加一条，
+ *   且加了之后如果有人真建了张叫 curl 的表，反而被静默放过。
+ *
+ * 前车之鉴见 T3：门禁 ④ 曾把 Javadoc 里的 @PreAuthorize 当成真实注解（误报），
+ * 也曾因全限定写法 @org.springframework...PreAuthorize 而漏检（静默失效）。
+ * 误报与漏检都要治，但**误报多的门禁一定会被关掉**，所以优先治误报。
+ */
+const FILE_SUFFIXES = new Set([
+  'exe', 'cmd', 'bat', 'ps1', 'sh', 'jar', 'war',
+  'js', 'mjs', 'cjs', 'ts', 'vue', 'java', 'sql',
+  'json', 'yaml', 'yml', 'xml', 'properties', 'toml',
+  'md', 'txt', 'log', 'html', 'css', 'png', 'jpg', 'svg',
+]);
+
 export function check(ctx) {
   const allow = readJsonIfExists(ctx.allowlistPath, {});
   const allowed = normalizeAllowlist(allow.docRefAllowlist ?? []);
@@ -33,6 +53,10 @@ export function check(ctx) {
 
   for (const r of refs) {
     const key = `${r.table}.${r.column}`;
+    // ⚠️ 文件名而非“表.列”：curl.exe / check.mjs / app.jar …（否则全是误报）
+    if (FILE_SUFFIXES.has(String(r.column).toLowerCase())) {
+      continue;
+    }
     if (isAllowed(allowed, key, r.file)) {
       continue;
     }
