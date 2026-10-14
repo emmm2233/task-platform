@@ -160,7 +160,7 @@ class AcceptanceServiceTest {
     }
 
     @Test
-    @DisplayName("⭐ 只有发单方或接单方能触发验收（防第三方替人验收）")
+    @DisplayName("⭐ 只有发单方（或系统自动验收）能触发验收 —— 第三方与接单方都必须被拒")
     void only_parties_can_accept() {
         Long taskId = seedPendingAccept("1000.00");
         Long stranger = newUser("路人");
@@ -168,7 +168,10 @@ class AcceptanceServiceTest {
         assertThatThrownBy(() -> acceptanceService.accept(taskId, stranger, "我来验收"))
                 .isInstanceOf(BizException.class)
                 .extracting(e -> ((BizException) e).getCode())
-                .isEqualTo(ErrorCode.NOT_TASK_OWNER.getCode());
+                // ⚠️ 期望码从 NOT_TASK_OWNER 改为 NO_PERMISSION：
+                //    "你不是这条任务的发单方"本质是【鉴权失败】，
+                //    且现在接单方也走同一条拒绝分支（见 taker_cannot_accept_its_own_delivery）。
+                .isEqualTo(ErrorCode.NO_PERMISSION.getCode());
 
         // 状态未变
         assertThat(jdbc.queryForObject("SELECT status FROM task WHERE id = ?", String.class, taskId))
@@ -176,14 +179,42 @@ class AcceptanceServiceTest {
     }
 
     @Test
-    @DisplayName("⭐ 接单方也能触发（自动验收场景由定时任务以自己的身份调）")
-    void taker_can_also_accept() {
+    @DisplayName("⛔⛔ 接单方【不能】给自己验收 —— 交付与验收由同一方控制等于没有验收")
+    void taker_cannot_accept_its_own_delivery() {
+        // 修复前这里是 taker_can_also_accept，断言"接单方验收后余额 +800"——
+        // 也就是说它把这个漏洞【钉成了预期行为】。
+        // 漏洞链路：accept 放行 isTaker → sm.fire 只校验(状态,事件)、operatorType 只写日志
+        // ⇒ PENDING_ACCEPT → COMPLETED，并在同一事务里把托管款放给自己。
+        // 设计文档：验收触发者只有「发单方 / 自动验收」（§4.11.4 / §4.11.5）。
         Long taskId = seedPendingAccept("800.00");
         BigDecimal before = availableOfTaker();
 
-        acceptanceService.accept(taskId, takerId, "接单方确认交付");
+        assertThatThrownBy(() -> acceptanceService.accept(taskId, takerId, "接单方自己验收"))
+                .isInstanceOf(BizException.class)
+                .extracting(e -> ((BizException) e).getCode())
+                .isEqualTo(ErrorCode.NO_PERMISSION.getCode());
 
-        assertThat(availableOfTaker()).isEqualByComparingTo(before.add(new BigDecimal("800.00")));
+        assertThat(availableOfTaker())
+                .as("被拒的验收一分钱都不能动")
+                .isEqualByComparingTo(before);
+        assertThat(jdbc.queryForObject("SELECT status FROM task WHERE id = ?", String.class, taskId))
+                .as("状态也不能被推进")
+                .isEqualTo(TaskStatus.PENDING_ACCEPT.name());
+    }
+
+    @Test
+    @DisplayName("⭐ 系统自动验收【可以】触发（偏接单方的保护走这条路，而不是让接单方自验）")
+    void system_actor_can_accept() {
+        Long taskId = seedPendingAccept("700.00");
+        BigDecimal before = availableOfTaker();
+
+        acceptanceService.accept(taskId, AcceptanceService.SYSTEM_ACTOR, "交付后 7 天自动验收");
+
+        assertThat(availableOfTaker())
+                .as("自动验收后正常放款给接单方")
+                .isEqualByComparingTo(before.add(new BigDecimal("700.00")));
+        assertThat(jdbc.queryForObject("SELECT status FROM task WHERE id = ?", String.class, taskId))
+                .isEqualTo(TaskStatus.COMPLETED.name());
     }
 
     @Test

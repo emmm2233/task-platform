@@ -47,10 +47,25 @@ public class AcceptanceService {
     private final JdbcTemplate jdbc;
     private final Clock clock;
 
+    /** 系统主体 id（定时任务 / 自动验收）。与设计文档里 {@code OP_SYSTEM} 的用法一致：0 = 系统。 */
+    public static final long SYSTEM_ACTOR = 0L;
+
     /**
      * 验收通过并发起分账。
      *
-     * @param actorId 发单方或接单方（⛔ 第三方不可替人验收）
+     * <p>⛔⛔ <b>只有发单方（或系统自动验收）能触发</b>，接单方<b>不能</b>给自己验收。
+     *
+     * <p>踩过的坑：这里原来写的是「发单方<b>或接单方</b>都可以」，而
+     * {@link TaskStateMachineService#fire} 只校验 (状态, 事件)、
+     * <b>operatorType 只写日志不参与鉴权</b> ⇒ 接单方调一次 accept 就能：
+     * {@code PENDING_ACCEPT → COMPLETED} 并在同一事务里把托管款放给自己。
+     * 交付与验收由同一方控制，等于没有验收。
+     *
+     * <p>设计文档的口径是唯一的：验收触发者只有「发单方 / 自动验收」
+     * （§4.11.4 第 23 行迁移、§4.11.5 状态×操作矩阵），
+     * 偏接单方的正确保护是「交付后 N 天<b>自动验收</b>」，而不是让接单方自验。
+     *
+     * @param actorId 发单方 id，或 {@link #SYSTEM_ACTOR}（自动验收定时任务）
      */
     @Transactional
     public void accept(Long taskId, Long actorId, String remark) {
@@ -65,15 +80,15 @@ public class AcceptanceService {
         Map<String, Object> t = rows.get(0);
 
         boolean isPublisher = String.valueOf(t.get("publisher_id")).equals(String.valueOf(actorId));
-        boolean isTaker = t.get("assignee_id") != null
-                && String.valueOf(t.get("assignee_id")).equals(String.valueOf(actorId));
-        if (!isPublisher && !isTaker) {
-            throw new BizException(ErrorCode.NOT_TASK_OWNER, "只有发单方或接单方可以确认验收");
+        boolean isSystem = actorId != null && actorId == SYSTEM_ACTOR;
+        if (!isPublisher && !isSystem) {
+            throw new BizException(ErrorCode.NO_PERMISSION,
+                    "只有发单方或系统自动验收可以确认验收（接单方不能给自己验收）");
         }
 
         // ② 状态机推进（状态不对会在这里抛，且事务回滚 → 钱一分不动）
         sm.fire(taskId, TaskEvent.ACCEPT, actorId,
-                isPublisher ? TaskStateMachineService.OP_PUBLISHER : TaskStateMachineService.OP_TAKER,
+                isPublisher ? TaskStateMachineService.OP_PUBLISHER : TaskStateMachineService.OP_SYSTEM,
                 remark);
 
         // ③ 分账：补齐份额并释放
