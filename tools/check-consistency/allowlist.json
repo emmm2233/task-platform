@@ -1,0 +1,177 @@
+{
+  "_comment": "跨产物一致性门禁的显式白名单。⛔ 每条都必须写明理由 —— 白名单是例外清单，不是垃圾桶。没有理由的条目会在评审时被打回。",
+  "_computedFields说明": "跨 schema 通用的计算/派生字段（服务端算出、库里不存）。⛔ 只放真正通用的；某个 schema 独有的请就近写在该 schema 的 x-computed 里。",
+  "computedFields": [
+    "remainingSeconds",
+    "remainingDays",
+    "distanceKm",
+    "statusName",
+    "statusGroup",
+    "statusColor",
+    "allowedActions",
+    "similarTasks",
+    "unreadCount",
+    "totalCount",
+    "settledCount",
+    "failCode",
+    "failReason",
+    "success",
+    "watermark",
+    "expiresIn",
+    "accessToken",
+    "refreshToken",
+    "payParams",
+    "codeUrl",
+    "jsapiParams",
+    "sdkParams",
+    "uploadToken",
+    "partSize",
+    "chunked",
+    "cursor",
+    "hasMore",
+    "list",
+    "pageSize",
+    "total",
+    "items",
+    "rows",
+    "records",
+    "options",
+    "extra",
+    "children",
+    "label",
+    "value",
+    "code",
+    "name",
+    "type",
+    "message"
+  ],
+  "internalTables": [
+    {
+      "table": "sys_audit_log",
+      "reason": "业务审计日志。只增不改不删，仅管理端受控查询；不提供写接口。"
+    },
+    {
+      "table": "sys_data_access_log",
+      "reason": "L3/L4 数据访问审计。安全取证用，不对端暴露。"
+    },
+    {
+      "table": "sys_login_log",
+      "reason": "登录日志。风控与合规取证用。"
+    },
+    {
+      "table": "sys_config_history",
+      "reason": "参数变更历史。管理端在参数详情里嵌套返回，无独立接口。"
+    },
+    {
+      "table": "sys_event_registry",
+      "reason": "MQ 事件注册表。是上线前的一致性台账，非运行时业务数据。"
+    },
+    {
+      "table": "sys_archive_config",
+      "reason": "归档策略配置。运维内部使用。"
+    },
+    {
+      "table": "sys_rate_limit_rule",
+      "reason": "限流规则。由网关与拦截器读取，不通过业务接口读写。"
+    },
+    {
+      "table": "sys_feature_flag",
+      "reason": "特性开关。应急开关由运维通道操作，不走业务接口（避免业务接口本身被限流/只读影响）。"
+    },
+    {
+      "table": "sys_mfa_recovery_code",
+      "reason": "MFA 一次性恢复码。只在用户自助恢复流程内部读写，⛔ 绝不可查询。"
+    },
+    {
+      "table": "sys_access_whitelist",
+      "reason": "IP 白名单。安全策略数据，由运维配置。"
+    },
+    {
+      "table": "sys_idempotent_record",
+      "reason": "幂等记录。纯技术支撑表，无业务语义。"
+    },
+    {
+      "table": "risk_hit_log",
+      "reason": "风控命中日志。只增不改，风控内部消费。"
+    },
+    {
+      "table": "risk_rule",
+      "reason": "风控规则。由规则引擎在服务端评估，不直接对端暴露（避免被逆向绕过）。"
+    },
+    {
+      "table": "device_fingerprint",
+      "reason": "设备指纹。风控采集与比对用，不提供查询接口（防止被用于画像探测）。"
+    },
+    {
+      "table": "recon_diff",
+      "reason": "对账差异单。管理端财务台在账单详情里嵌套返回。"
+    },
+    {
+      "table": "recon_bill",
+      "reason": "渠道对账账单。T+1 任务落库，管理端查询为受控导出。"
+    },
+    {
+      "table": "abnormal_callback",
+      "reason": "异常回调单。支付回调乱序/非法迁移时落库并告警，仅管理端受控查看。"
+    },
+    {
+      "table": "wallet_txn",
+      "reason": "钱包流水。管理端在对账与工单详情里嵌套返回。"
+    },
+    {
+      "table": "ledger_entry",
+      "reason": "复式记账分录。⛔ 内部账务凭证，永不对端暴露（仅审计与财务导出）。"
+    },
+    {
+      "table": "task_bid_history",
+      "reason": "⭐ 报价修改历史。保留每一次改价，用于争议时判定『是否在截止后改价』。仅仲裁专员在工单详情内调阅，无独立接口。"
+    },
+    {
+      "table": "notify_template",
+      "reason": "通知模板。管理端在参数配置里维护，运行时由通知引擎读取。"
+    },
+    {
+      "table": "flyway_schema_history",
+      "reason": "Flyway 自身的迁移记账表，不属于业务 schema。"
+    }
+  ],
+  "_coveredBy说明": "名称匹配不到、但人工确认已被某接口读写的表。写在这里是为了留下判断依据，而不是把它们误当成『内部表』。",
+  "coveredBy": {
+    "notify_record": {
+      "by": "GET /notifications（站内信列表）+ PATCH /notifications/read",
+      "reason": "站内信列表读的就是 notify_record（发送记录即收件箱数据源）。表名与路径词形不同，故名称匹配器看不出来。"
+    },
+    "approval_record": {
+      "by": "POST /admin/approvals/{approvalId}/vote",
+      "reason": "复核投票即写入 approval_record（一人一票由 uk 保证）。"
+    }
+  },
+  "docRefAllowlist": [
+    {
+      "ref": "escrow.sub_amounts",
+      "allowIn": [
+        "docs/plans/**",
+        "docs/*总体设计.md",
+        "README.md",
+        "deploy/README.md"
+      ],
+      "reason": "⚠️ 只出现在『对 P0-① 缺陷的描述性引用』中（§6.7 缺陷审计台账、变更记录、T3 任务说明、README 的缺陷复盘）。这些句子说的是『文档曾写了一个不存在的列』，并非声称它存在。按文件范围限定，避免放过将来的真实引用。"
+    }
+  ],
+  "modules": [
+    "identity",
+    "task",
+    "award",
+    "order",
+    "wallet",
+    "credit",
+    "dispute",
+    "im",
+    "notify",
+    "admin",
+    "risk",
+    "common",
+    "job",
+    "ws"
+  ]
+}

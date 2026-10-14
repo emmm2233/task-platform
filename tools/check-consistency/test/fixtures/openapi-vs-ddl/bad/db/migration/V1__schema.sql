@@ -1,0 +1,2 @@
+CREATE TABLE `task` ( `id` BIGINT NOT NULL, PRIMARY KEY (`id`) ) ENGINE=InnoDB;
+CREATE TABLE `orphan_ledger` ( `id` BIGINT NOT NULL, PRIMARY KEY (`id`) ) ENGINE=InnoDB;

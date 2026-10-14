@@ -1,0 +1,188 @@
+# =====================================================================
+#  CI 流水线
+#
+#  设计原则：
+#    ① 把「跨产物一致性门禁」放在 test 之前 —— 它最便宜（纯文本分析，秒级），
+#       却拦得住最贵的错误（文档与 DDL 矛盾、接口字段不存在）。
+#    ② 安全扫描与构建并行，不阻塞反馈。
+#    ③ 任何一道门禁失败即整条流水线失败，⛔ 不允许 --warn 逃逸到主干。
+# =====================================================================
+
+stages:
+  - lint
+  - consistency
+  - test
+  - security
+  - build
+  - deploy
+
+variables:
+  MAVEN_OPTS: "-Dfile.encoding=UTF-8 -Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository"
+  MAVEN_CLI: "mvn -B -ntp"
+
+default:
+  image: maven:3.9-eclipse-temurin-21
+  cache:
+    key: "$CI_COMMIT_REF_SLUG"
+    paths:
+      - .m2/repository
+      - tools/check-consistency/node_modules
+
+# ---------------------------------------------------------------------
+# lint：代码风格与提交规范
+# ---------------------------------------------------------------------
+checkstyle:
+  stage: lint
+  script:
+    - $MAVEN_CLI -q checkstyle:check
+  allow_failure: false
+
+commit-message:
+  stage: lint
+  image: node:20-alpine
+  script:
+    # Conventional Commits：type(scope): subject
+    - |
+      MSG=$(git log -1 --pretty=%s)
+      echo "提交信息: $MSG"
+      echo "$MSG" | grep -qE '^(feat|fix|docs|refactor|test|chore|perf|build|ci)(\(.+\))?: .{4,}' \
+        || { echo "❌ 提交信息不符合 Conventional Commits"; exit 1; }
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+# ---------------------------------------------------------------------
+# consistency：五道跨产物门禁（⭐ 本流水线的核心价值）
+#
+# 为什么排这么前：§6.7 的 P0-① 就是「文档写了 escrow.sub_amounts、DDL 里没有」——
+# 单看文档自洽、单看 DDL 也自洽，**矛盾只在两者之间**，人工评审两次都没发现。
+# 这类检查是纯文本分析（秒级），却拦得住最贵的一类错误。
+# ---------------------------------------------------------------------
+consistency-gates:
+  stage: consistency
+  image: node:20-alpine
+  script:
+    # 门禁自身的单测：good 夹具必须零违规、bad 夹具必须抓到
+    # ⭐ 「bad 组必须报错」比「good 组通过」重要 —— 防的是门禁悄悄失效
+    - cd tools/check-consistency && npm ci --no-audit --no-fund && npm test
+    - cd "$CI_PROJECT_DIR" && node tools/check-consistency/check.mjs
+  allow_failure: false
+
+# ---------------------------------------------------------------------
+# test：单元 + 集成（Testcontainers 起真实 MySQL）
+# ---------------------------------------------------------------------
+unit-test:
+  stage: test
+  services:
+    - name: mysql:8.0.36
+      alias: mysql
+    - name: redis:7.2-alpine
+      alias: redis
+  variables:
+    MYSQL_ROOT_PASSWORD: root123456
+    MYSQL_DATABASE: task_platform_test
+    TEST_MYSQL_URL: "jdbc:mysql://mysql:3306/task_platform_test?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true"
+    TEST_REDIS_HOST: redis
+  script:
+    - $MAVEN_CLI -pl platform-app -am test
+      -Dtest.mysql.url="$TEST_MYSQL_URL"
+      -Dtest.mysql.password="$MYSQL_ROOT_PASSWORD"
+  artifacts:
+    when: always
+    reports:
+      junit: "**/target/surefire-reports/TEST-*.xml"
+    paths:
+      - "**/target/surefire-reports/"
+
+concurrency-test:
+  stage: test
+  needs: ["unit-test"]
+  services:
+    - name: mysql:8.0.36
+      alias: mysql
+    - name: redis:7.2-alpine
+      alias: redis
+  variables:
+    MYSQL_ROOT_PASSWORD: root123456
+    MYSQL_DATABASE: task_platform_test
+  script:
+    # ⭐ 5000 并发抢同一单，成功数必须恒为 1（G14）
+    - $MAVEN_CLI -pl platform-app -am verify -Pconcurrency
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main" || $CI_MERGE_REQUEST_ID
+
+# ---------------------------------------------------------------------
+# security：密钥泄露 / SAST / 依赖漏洞 / 镜像漏洞
+# ---------------------------------------------------------------------
+secret-scan:
+  stage: security
+  image: zricethezav/gitleaks:latest
+  script:
+    - gitleaks detect --source . --verbose --redact --exit-code 1
+  allow_failure: false
+
+sast:
+  stage: security
+  script:
+    - $MAVEN_CLI -q org.sonarsource.scanner.maven:sonar-maven-plugin:sonar
+      -Dsonar.projectKey=task-platform
+      -Dsonar.host.url="$SONAR_HOST_URL"
+      -Dsonar.login="$SONAR_TOKEN"
+      -Dsonar.qualitygate.wait=true
+  rules:
+    - if: $SONAR_TOKEN
+
+dependency-check:
+  stage: security
+  script:
+    - $MAVEN_CLI -q org.owasp:dependency-check-maven:check
+      -DfailBuildOnCVSS=7
+      -DsuppressionFile=.owasp-suppressions.xml
+  artifacts:
+    when: always
+    paths:
+      - "**/target/dependency-check-report.html"
+
+# ---------------------------------------------------------------------
+# build
+# ---------------------------------------------------------------------
+build-jar:
+  stage: build
+  script:
+    - $MAVEN_CLI -pl platform-app -am clean package -DskipTests
+  artifacts:
+    paths:
+      - platform-app/target/*.jar
+    expire_in: 1 week
+
+image-scan:
+  stage: build
+  needs: ["build-jar"]
+  image: aquasec/trivy:latest
+  script:
+    # ⛔ 高危漏洞即失败
+    - trivy image --exit-code 1 --severity HIGH,CRITICAL "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA"
+
+# ---------------------------------------------------------------------
+# deploy：人工卡点
+# ---------------------------------------------------------------------
+deploy-staging:
+  stage: deploy
+  script:
+    - echo "部署到预发环境（K8s HPA：app-api 无状态 / app-ws 按连接数扩容）"
+  environment:
+    name: staging
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+
+deploy-production:
+  stage: deploy
+  needs: ["deploy-staging"]
+  script:
+    - echo "灰度发布：1% → 10% → 50% → 100%，每档观察 >= 24h"
+    - echo "重点观测：资金不变量、对账差异数、抢单成功率"
+  environment:
+    name: production
+  rules:
+    - if: $CI_COMMIT_BRANCH == "release/*"
+      when: manual

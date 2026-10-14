@@ -67,10 +67,6 @@ security:
   - bearerAuth: []
 
 paths:
-
-  # ===================================================================
-  # AUTH · 认证与会话
-  # ===================================================================
   /auth/sms-code:
     post:
       operationId: postAuthSms-code
@@ -97,7 +93,6 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/Ok' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
-
   /auth/register:
     post:
       operationId: postAuthRegister
@@ -130,7 +125,6 @@ paths:
                   - $ref: '#/components/schemas/ApiResponse'
                   - properties:
                       data: { $ref: '#/components/schemas/LoginResult' }
-
   /auth/login:
     post:
       operationId: postAuthLogin
@@ -170,7 +164,6 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ApiResponse' }
-
   /auth/refresh:
     post:
       operationId: postAuthRefresh
@@ -197,7 +190,6 @@ paths:
                   - $ref: '#/components/schemas/ApiResponse'
                   - properties:
                       data: { $ref: '#/components/schemas/LoginResult' }
-
   /auth/logout:
     post:
       operationId: postAuthLogout
@@ -205,7 +197,6 @@ paths:
       summary: 登出
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /auth/menus:
     get:
       operationId: getAuthMenus
@@ -262,7 +253,6 @@ paths:
                 serviceRegion: { type: string }
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /account/real-name:
     post:
       operationId: postAccountReal-name
@@ -303,7 +293,6 @@ paths:
                   - $ref: '#/components/schemas/ApiResponse'
                   - properties:
                       data: { $ref: '#/components/schemas/RealNameInfo' }
-
   /account/credit:
     get:
       operationId: getAccountCredit
@@ -319,7 +308,6 @@ paths:
                   - $ref: '#/components/schemas/ApiResponse'
                   - properties:
                       data: { $ref: '#/components/schemas/CreditInfo' }
-
   /account/credit/privileges:
     get:
       operationId: getAccountCreditPrivileges
@@ -338,7 +326,6 @@ paths:
                   - $ref: '#/components/schemas/ApiResponse'
                   - properties:
                       data: { $ref: '#/components/schemas/UserPrivileges' }
-
   /account/credit/logs:
     get:
       operationId: getAccountCreditLogs
@@ -363,7 +350,6 @@ paths:
                               list:
                                 type: array
                                 items: { $ref: '#/components/schemas/CreditLog' }
-
   /account/credit/appeals:
     post:
       operationId: postAccountCreditAppeals
@@ -385,7 +371,6 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/Ok' }
         '70006': { $ref: '#/components/responses/Error' }
-
   /account/devices:
     get:
       operationId: getAccountDevices
@@ -489,7 +474,6 @@ paths:
                           taskId: { type: integer, format: int64 }
                           taskNo: { type: string }
         '400': { $ref: '#/components/responses/BadRequest' }
-
   /tasks/{taskId}:
     parameters:
       - $ref: '#/components/parameters/TaskId'
@@ -527,7 +511,6 @@ paths:
       summary: 删除草稿
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /tasks/{taskId}/publish:
     post:
       operationId: postTasksByTaskIdPublish
@@ -540,7 +523,6 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/Ok' }
         '400': { $ref: '#/components/responses/BadRequest' }
-
   /tasks/{taskId}/cancel:
     post:
       operationId: postTasksByTaskIdCancel
@@ -563,7 +545,6 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/Ok' }
         '409': { $ref: '#/components/responses/StateConflict' }
-
   /tasks/{taskId}/status-logs:
     get:
       operationId: getTasksByTaskIdStatus-logs
@@ -583,7 +564,6 @@ paths:
                       data:
                         type: array
                         items: { $ref: '#/components/schemas/TaskStatusLog' }
-
   /tasks/mine:
     get:
       operationId: getTasksMine
@@ -611,7 +591,6 @@ paths:
                               list:
                                 type: array
                                 items: { $ref: '#/components/schemas/TaskSummary' }
-
   /tasks/preview-commission:
     post:
       operationId: postTasksPreview-commission
@@ -683,7 +662,6 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ApiResponse' }
-
   /tasks/{taskId}/bids:
     parameters:
       - $ref: '#/components/parameters/TaskId'
@@ -721,7 +699,6 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/Ok' }
         '400': { $ref: '#/components/responses/BadRequest' }
-
   /tasks/{taskId}/bids/{bidId}:
     parameters:
       - $ref: '#/components/parameters/TaskId'
@@ -748,7 +725,6 @@ paths:
       summary: 撤回报价（撤回后不可再报）
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /tasks/{taskId}/bids/{bidId}/shortlist:
     post:
       operationId: postTasksByTaskIdBidsByBidIdShortlist
@@ -770,7 +746,6 @@ paths:
                 shortlisted: { type: boolean, default: true }
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /tasks/{taskId}/award:
     post:
       operationId: postTasksByTaskIdAward
@@ -805,7 +780,6 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ApiResponse' }
-
   /award/bids/mine:
     get:
       operationId: getAwardBidsMine
@@ -864,7 +838,6 @@ paths:
                               list:
                                 type: array
                                 items: { $ref: '#/components/schemas/OrderSummary' }
-
   /orders/{orderId}:
     get:
       operationId: getOrdersByOrderId
@@ -885,7 +858,6 @@ paths:
                   - $ref: '#/components/schemas/ApiResponse'
                   - properties:
                       data: { $ref: '#/components/schemas/OrderDetail' }
-
   /sub-orders:
     get:
       operationId: getSub-orders
@@ -913,7 +885,6 @@ paths:
                               list:
                                 type: array
                                 items: { $ref: '#/components/schemas/SubOrderSummary' }
-
   /sub-orders/{subOrderId}:
     get:
       operationId: getSub-ordersBySubOrderId
@@ -934,7 +905,6 @@ paths:
                   - $ref: '#/components/schemas/ApiResponse'
                   - properties:
                       data: { $ref: '#/components/schemas/SubOrderDetail' }
-
   /sub-orders/{subOrderId}/start:
     post:
       operationId: postSub-ordersBySubOrderIdStart
@@ -945,7 +915,6 @@ paths:
         - $ref: '#/components/parameters/IdempotencyKey'
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /sub-orders/{subOrderId}/checkin:
     post:
       operationId: postSub-ordersBySubOrderIdCheckin
@@ -968,7 +937,6 @@ paths:
                 photoKey: { type: string }
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /sub-orders/{subOrderId}/deliveries:
     post:
       operationId: postSub-ordersBySubOrderIdDeliveries
@@ -985,7 +953,6 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/Ok' }
         '409': { $ref: '#/components/responses/StateConflict' }
-
   /sub-orders/{subOrderId}/accept:
     post:
       operationId: postSub-ordersBySubOrderIdAccept
@@ -1009,7 +976,6 @@ paths:
                 comment: { type: string }
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /sub-orders/{subOrderId}/reject:
     post:
       operationId: postSub-ordersBySubOrderIdReject
@@ -1037,7 +1003,6 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/Ok' }
         '32004': { $ref: '#/components/responses/Error' }
-
   /sub-orders/{subOrderId}/cancel:
     post:
       operationId: postSub-ordersBySubOrderIdCancel
@@ -1048,7 +1013,6 @@ paths:
         - $ref: '#/components/parameters/SubOrderId'
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /reviews:
     post:
       operationId: postReviews
@@ -1075,6 +1039,33 @@ paths:
   # ===================================================================
   # WALLET · 钱包 / 托管 / 提现
   # ===================================================================
+    get:
+      operationId: getReviews
+      tags: [order]
+      summary: 评价列表（按用户 / 订单查询）
+      parameters:
+        - { name: toUserId, in: query, schema: { type: integer, format: int64 }, description: 查某用户收到的评价 }
+        - { name: subOrderId, in: query, schema: { type: integer, format: int64 } }
+        - { name: direction, in: query, schema: { type: string, enum: [PUBLISHER_TO_TAKER, TAKER_TO_PUBLISHER] } }
+        - { name: minScore, in: query, schema: { type: integer, minimum: 1, maximum: 5 } }
+        - $ref: '#/components/parameters/PageNum'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: OK（⛔ 匿名评价不返回 fromUser 信息）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        allOf:
+                          - $ref: '#/components/schemas/PageResult'
+                          - properties:
+                              list:
+                                type: array
+                                items: { $ref: '#/components/schemas/Review' }
   /wallet:
     get:
       operationId: getWallet
@@ -1090,7 +1081,6 @@ paths:
                   - $ref: '#/components/schemas/ApiResponse'
                   - properties:
                       data: { $ref: '#/components/schemas/WalletSummary' }
-
   /wallet/transactions:
     get:
       operationId: getWalletTransactions
@@ -1118,7 +1108,6 @@ paths:
                               list:
                                 type: array
                                 items: { $ref: '#/components/schemas/WalletTxn' }
-
   /escrows:
     post:
       operationId: postEscrows
@@ -1159,7 +1148,6 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ApiResponse' }
-
   /wallet/withdrawals:
     get:
       operationId: getWalletWithdrawals
@@ -1203,7 +1191,6 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/Ok' }
         '400': { $ref: '#/components/responses/BadRequest' }
-
   /wallet/bills/export:
     post:
       operationId: postWalletBillsExport
@@ -1214,7 +1201,6 @@ paths:
       description: ⛔ 导出会写 `sys_data_access_log`；单次超 `security.export_max_rows` 需审批。
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /pay/callback/{channel}:
     post:
       operationId: postPayCallbackByChannel
@@ -1281,8 +1267,6 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/Ok' }
         '409': { $ref: '#/components/responses/StateConflict' }
-
-  /disputes:
     get:
       operationId: getDisputes
       tags: [dispute]
@@ -1309,7 +1293,6 @@ paths:
                               list:
                                 type: array
                                 items: { $ref: '#/components/schemas/DisputeTicket' }
-
   /disputes/{ticketId}:
     get:
       operationId: getDisputesByTicketId
@@ -1327,7 +1310,6 @@ paths:
                   - $ref: '#/components/schemas/ApiResponse'
                   - properties:
                       data: { $ref: '#/components/schemas/DisputeDetail' }
-
   /disputes/{ticketId}/evidences:
     post:
       operationId: postDisputesByTicketIdEvidences
@@ -1350,7 +1332,6 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/Ok' }
         '50002': { $ref: '#/components/responses/Error' }
-
   /disputes/{ticketId}/appeals:
     post:
       operationId: postDisputesByTicketIdAppeals
@@ -1393,7 +1374,6 @@ paths:
                       data:
                         type: array
                         items: { $ref: '#/components/schemas/ImSession' }
-
   /im/sessions/{sessionId}/messages:
     get:
       operationId: getImSessionsBySessionIdMessages
@@ -1444,7 +1424,6 @@ paths:
                 clientMsgId: { type: string, description: 客户端幂等 id }
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /im/sessions/{sessionId}/read:
     post:
       operationId: postImSessionsBySessionIdRead
@@ -1493,7 +1472,6 @@ paths:
                               list:
                                 type: array
                                 items: { $ref: '#/components/schemas/Notification' }
-
   /notifications/read:
     post:
       operationId: postNotificationsRead
@@ -1509,7 +1487,6 @@ paths:
                 all: { type: boolean }
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /notifications/preferences:
     get:
       operationId: getNotificationsPreferences
@@ -1548,7 +1525,6 @@ paths:
                       data:
                         type: array
                         items: { $ref: '#/components/schemas/Category' }
-
   /dict/{dictType}:
     get:
       operationId: getDictByDictType
@@ -1578,7 +1554,6 @@ paths:
                       data:
                         type: array
                         items: { $ref: '#/components/schemas/DictItem' }
-
   /client/capabilities:
     get:
       operationId: getClientCapabilities
@@ -1599,7 +1574,6 @@ paths:
                       data:
                         type: array
                         items: { $ref: '#/components/schemas/ClientCapability' }
-
   /client/upload-policy:
     get:
       operationId: getClientUpload-policy
@@ -1618,7 +1592,6 @@ paths:
                   - $ref: '#/components/schemas/ApiResponse'
                   - properties:
                       data: { $ref: '#/components/schemas/UploadPolicy' }
-
   /files/upload-token:
     post:
       operationId: postFilesUpload-token
@@ -1649,7 +1622,6 @@ paths:
                   - $ref: '#/components/schemas/ApiResponse'
                   - properties:
                       data: { $ref: '#/components/schemas/UploadToken' }
-
   /files/{fileKey}/download-url:
     get:
       operationId: getFilesByFileKeyDownload-url
@@ -1696,7 +1668,6 @@ paths:
                                 type: array
                                 items: { $ref: '#/components/schemas/DisputeTicket' }
         '403': { $ref: '#/components/responses/Forbidden' }
-
   /op/tickets/{ticketId}/assign:
     post:
       operationId: postOpTicketsByTicketIdAssign
@@ -1707,7 +1678,6 @@ paths:
         - $ref: '#/components/parameters/TicketId'
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /op/tickets/{ticketId}/verdict:
     post:
       operationId: postOpTicketsByTicketIdVerdict
@@ -1731,7 +1701,6 @@ paths:
         '200': { $ref: '#/components/responses/Ok' }
         '50003': { $ref: '#/components/responses/Error' }
         '50004': { $ref: '#/components/responses/Error' }
-
   /op/tickets/{ticketId}/appeal-review:
     post:
       operationId: postOpTicketsByTicketIdAppeal-review
@@ -1754,7 +1723,6 @@ paths:
         '200': { $ref: '#/components/responses/Ok' }
         '403':
           description: 复核人 = 原裁决人（拒绝）
-
   /op/task-audits:
     get:
       operationId: getOpTask-audits
@@ -1765,7 +1733,6 @@ paths:
         - $ref: '#/components/parameters/PageSize'
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /op/task-audits/{taskId}:
     post:
       operationId: postOpTask-auditsByTaskId
@@ -1786,7 +1753,6 @@ paths:
                 reason: { type: string, maxLength: 500, description: 驳回/下架必填 }
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /op/real-name-audits:
     get:
       operationId: getOpReal-name-audits
@@ -1797,7 +1763,6 @@ paths:
         - $ref: '#/components/parameters/PageSize'
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /op/real-name-audits/{id}:
     post:
       operationId: postOpReal-name-auditsById
@@ -1821,7 +1786,6 @@ paths:
                 rejectReason: { type: string }
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /op/credit-appeals/{appealId}:
     post:
       operationId: postOpCredit-appealsByAppealId
@@ -1845,7 +1809,6 @@ paths:
                 remark: { type: string, maxLength: 1000 }
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /op/withdrawals:
     get:
       operationId: getOpWithdrawals
@@ -1856,7 +1819,6 @@ paths:
         - $ref: '#/components/parameters/PageSize'
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /op/withdrawals/{withdrawId}/audit:
     post:
       operationId: postOpWithdrawalsByWithdrawIdAudit
@@ -1881,7 +1843,6 @@ paths:
                 mfaCode: { type: string, description: ⭐ 敏感操作二次认证，不能只靠"已登录" }
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /op/recon-diffs:
     get:
       operationId: getOpRecon-diffs
@@ -1895,7 +1856,6 @@ paths:
         - $ref: '#/components/parameters/PageSize'
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /op/recon-diffs/{diffId}:
     post:
       operationId: postOpRecon-diffsByDiffId
@@ -1939,7 +1899,6 @@ paths:
         - $ref: '#/components/parameters/PageSize'
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /admin/users/{userId}/freeze:
     post:
       operationId: postAdminUsersByUserIdFreeze
@@ -1960,7 +1919,6 @@ paths:
                 mfaCode: { type: string }
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /admin/users/{userId}/unfreeze:
     post:
       operationId: postAdminUsersByUserIdUnfreeze
@@ -1971,7 +1929,6 @@ paths:
         - $ref: '#/components/parameters/UserId'
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /admin/users/{userId}/reset-password:
     post:
       operationId: postAdminUsersByUserIdReset-password
@@ -1982,7 +1939,6 @@ paths:
         - $ref: '#/components/parameters/UserId'
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /admin/users/{userId}/kick:
     post:
       operationId: postAdminUsersByUserIdKick
@@ -1993,7 +1949,6 @@ paths:
         - $ref: '#/components/parameters/UserId'
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /admin/users/{userId}/credit-adjust:
     post:
       operationId: postAdminUsersByUserIdCredit-adjust
@@ -2016,7 +1971,6 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/Ok' }
         '70007': { $ref: '#/components/responses/Error' }
-
   /admin/internal-accounts:
     post:
       operationId: postAdminInternal-accounts
@@ -2048,7 +2002,6 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ApiResponse' }
-
   /admin/roles:
     get:
       operationId: getAdminRoles
@@ -2064,7 +2017,6 @@ paths:
       summary: 创建角色
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /admin/roles/{roleId}/permissions:
     put:
       operationId: putAdminRolesByRoleIdPermissions
@@ -2087,7 +2039,6 @@ paths:
                 dataScope: { type: string, enum: [SELF, GROUP, ALL] }
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /admin/role-conflicts:
     get:
       operationId: getAdminRole-conflicts
@@ -2103,7 +2054,6 @@ paths:
       summary: 新增互斥岗位对
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /admin/configs:
     get:
       operationId: getAdminConfigs
@@ -2133,7 +2083,6 @@ paths:
                       configValue: { type: string }
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /admin/commission-rules:
     get:
       operationId: getAdminCommission-rules
@@ -2159,7 +2108,6 @@ paths:
         '200': { $ref: '#/components/responses/Ok' }
         '41003': { $ref: '#/components/responses/Error' }
         '41004': { $ref: '#/components/responses/Error' }
-
   /admin/credit-rules:
     get:
       operationId: getAdminCredit-rules
@@ -2183,7 +2131,6 @@ paths:
                   items: { $ref: '#/components/schemas/CreditRule' }
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /admin/credit-levels:
     get:
       operationId: getAdminCredit-levels
@@ -2208,7 +2155,6 @@ paths:
                   items: { $ref: '#/components/schemas/CreditLevel' }
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /admin/categories:
     get:
       operationId: getAdminCategories
@@ -2224,7 +2170,6 @@ paths:
       summary: 新增/修改分类（含分类级费率、允许的形态与计酬、是否需资质）
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /admin/approvals:
     get:
       operationId: getAdminApprovals
@@ -2236,7 +2181,6 @@ paths:
         - $ref: '#/components/parameters/PageSize'
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /admin/approvals/{approvalId}/vote:
     post:
       operationId: postAdminApprovalsByApprovalIdVote
@@ -2268,6 +2212,58 @@ paths:
         '200': { $ref: '#/components/responses/Ok' }
         '60006': { $ref: '#/components/responses/Error' }
 
+  /admin/sensitive-words:
+    get:
+      operationId: listSensitiveWords
+      tags: [admin]
+      summary: 敏感词库列表（运营维护，用于 IM 风控与"引导站外"识别）
+      description: ⛔ 敏感词库属内部风控数据，不对普通用户暴露。
+      parameters:
+        - { name: keyword, in: query, schema: { type: string } }
+        - { name: category, in: query, schema: { type: string, enum: [OFF_PLATFORM, FRAUD, ABUSE, AD, OTHER] } }
+        - { name: enabled, in: query, schema: { type: boolean } }
+        - $ref: "#/components/parameters/PageNum"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+    post:
+      operationId: createSensitiveWord
+      tags: [admin]
+      summary: 新增敏感词（支持变体，如 威信/vx/V信）
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [word, category]
+              properties:
+                word: { type: string, maxLength: 64 }
+                category: { type: string, enum: [OFF_PLATFORM, FRAUD, ABUSE, AD, OTHER] }
+                action: { type: string, enum: [BLOCK, MASK, TAG_ONLY], default: TAG_ONLY }
+                remark: { type: string, maxLength: 200 }
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+
+  /admin/sensitive-words/{wordId}:
+    patch:
+      operationId: updateSensitiveWord
+      tags: [admin]
+      summary: 修改敏感词（启停 / 处置动作）
+      parameters:
+        - { name: wordId, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+    delete:
+      operationId: deleteSensitiveWord
+      tags: [admin]
+      summary: 删除敏感词
+      parameters:
+        - { name: wordId, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
   /admin/audit-logs:
     get:
       operationId: getAdminAudit-logs
@@ -2288,7 +2284,6 @@ paths:
         - $ref: '#/components/parameters/PageSize'
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /admin/risk-rules:
     get:
       operationId: getAdminRisk-rules
@@ -2304,7 +2299,6 @@ paths:
       summary: 新增风控规则（⭐ 新规则默认 `mode=TAG`，先观察 3 天看误杀率再切 LIVE）
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /admin/blacklist:
     get:
       operationId: getAdminBlacklist
@@ -2320,7 +2314,6 @@ paths:
       summary: 加入黑名单（解封需超管审批 + 缴保证金）
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /admin/dashboard:
     get:
       operationId: getAdminDashboard
@@ -2328,7 +2321,6 @@ paths:
       summary: 数据看板（GMV / 托管余额 / 争端率 / SLA 达成率 / **资金对账差异** / 各信誉等级分布）
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /admin/fund/invariant-check:
     post:
       operationId: postAdminFundInvariant-check
@@ -2372,7 +2364,6 @@ paths:
                             format: date-time
                             description: "⭐ 前端倒计时以此为准，不依赖客户端本地时间"
                           maintenanceMode: { type: boolean }
-
   /health:
     get:
       operationId: getHealth
@@ -2394,7 +2385,6 @@ paths:
                       db: { type: string }
                       redis: { type: string }
                       mq: { type: string }
-
   /account/favorites:
     get:
       operationId: getAccountFavorites
@@ -2419,7 +2409,6 @@ paths:
                               list:
                                 type: array
                                 items: { $ref: '#/components/schemas/TaskSummary' }
-
   /tasks/{taskId}/favorite:
     parameters:
       - $ref: '#/components/parameters/TaskId'
@@ -2435,7 +2424,6 @@ paths:
       summary: 取消收藏
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /account/cancel:
     post:
       operationId: postAccountCancel
@@ -2463,7 +2451,6 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ApiResponse' }
-
   /task-templates:
     get:
       operationId: getTask-templates
@@ -2492,7 +2479,6 @@ paths:
                   additionalProperties: true
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /task-templates/{templateId}:
     parameters:
       - name: templateId
@@ -2511,36 +2497,6 @@ paths:
       summary: 删除模板（逻辑删除）
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
-  /reviews:
-    get:
-      operationId: getReviews
-      tags: [order]
-      summary: 评价列表（按用户 / 订单查询）
-      parameters:
-        - { name: toUserId, in: query, schema: { type: integer, format: int64 }, description: 查某用户收到的评价 }
-        - { name: subOrderId, in: query, schema: { type: integer, format: int64 } }
-        - { name: direction, in: query, schema: { type: string, enum: [PUBLISHER_TO_TAKER, TAKER_TO_PUBLISHER] } }
-        - { name: minScore, in: query, schema: { type: integer, minimum: 1, maximum: 5 } }
-        - $ref: '#/components/parameters/PageNum'
-        - $ref: '#/components/parameters/PageSize'
-      responses:
-        '200':
-          description: OK（⛔ 匿名评价不返回 fromUser 信息）
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/ApiResponse'
-                  - properties:
-                      data:
-                        allOf:
-                          - $ref: '#/components/schemas/PageResult'
-                          - properties:
-                              list:
-                                type: array
-                                items: { $ref: '#/components/schemas/Review' }
-
   /reports:
     post:
       operationId: postReports
@@ -2565,7 +2521,6 @@ paths:
                 evidences: { type: array, items: { type: string } }
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /invoices:
     get:
       operationId: getInvoices
@@ -2604,7 +2559,6 @@ paths:
                 email: { type: string }
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /subscriptions:
     get:
       operationId: getSubscriptions
@@ -2636,7 +2590,6 @@ paths:
                 enabled: { type: boolean }
       responses:
         '200': { $ref: '#/components/responses/Ok' }
-
   /exports:
     post:
       operationId: postExports
@@ -2675,7 +2628,6 @@ paths:
                   - $ref: '#/components/schemas/ApiResponse'
                   - properties:
                       data: { $ref: '#/components/schemas/ExportTask' }
-
   /exports/{exportId}:
     get:
       operationId: getExportsByExportId
@@ -2696,7 +2648,6 @@ paths:
                   - $ref: '#/components/schemas/ApiResponse'
                   - properties:
                       data: { $ref: '#/components/schemas/ExportTask' }
-
   /op/recon-bills:
     get:
       operationId: getOpRecon-bills
@@ -3012,6 +2963,8 @@ components:
         maxPublishAmount: { type: string, nullable: true }
 
     CreditLog:
+      # 计算字段：库里存的是 event_type，接口返回人类可读的事件名；appealable 由申诉窗口算出
+      x-computed: [eventName, appealable]
       type: object
       properties:
         id: { type: integer, format: int64 }
@@ -3070,6 +3023,10 @@ components:
 
     # ---------- 任务 ----------
     TaskSummary:
+      # 主键别名 + 联表/计算字段：分类名联 task_category，城市联 task_location，
+      # 发单方昵称与信誉等级联 sys_user，publishedAt 由审核通过时间派生
+      x-field-map: { taskId: id }
+      x-computed: [categoryName, city, publisherNickname, publisherCreditLevel, publishedAt]
       type: object
       description: 任务列表项（大厅 / 我的发布共用）
       properties:
@@ -3217,6 +3174,10 @@ components:
         attachments: { type: array, items: { type: string } }
 
     TaskDetail:
+      # 主键别名 + 联表/计算字段（同 TaskSummary，另加若干子集合）
+      x-field-map: { taskId: id }
+      x-computed: [categoryName, city, publisherNickname, publisherCreditLevel, publishedAt,
+                   acceptanceItems, location, milestones, attachments, myBid, commissionPreview]
       allOf:
         - $ref: '#/components/schemas/TaskSummary'
         - type: object
@@ -3378,6 +3339,9 @@ components:
               items: { $ref: '#/components/schemas/SubOrderDetail' }
 
     EscrowInfo:
+      # 主键别名 + 联表集合：shares 逐结算单元的托管份额（见 §6.7 P0-①）
+      x-field-map: { escrowId: id }
+      x-computed: [shares]
       type: object
       properties:
         escrowId: { type: integer, format: int64 }
@@ -3388,8 +3352,27 @@ components:
         status: { type: string, enum: [CREATED, FROZEN, PARTIAL_RELEASED, RELEASED, FROZEN_DISPUTE, REFUNDED, CANCELLED] }
         channel: { type: string, enum: [WECHAT, ALIPAY] }
         paidAt: { type: string, format: date-time, nullable: true }
+        # ⭐ 逐结算单元的托管份额（§6.7 P0-①）。争议只冻结相关份额，
+        #    前端据此展示"哪一份被冻、其余照常结算"——没有这个字段，用户只看到钱被冻却看不到原因。
+        shares:
+          type: array
+          items:
+            type: object
+            properties:
+              unitId: { type: integer, format: int64 }
+              unitName: { type: string }
+              takerId: { type: integer, format: int64 }
+              shareAmount: { type: string }
+              releasedAmount: { type: string }
+              refundedAmount: { type: string }
+              frozenAmount: { type: string }
+              status: { type: string, enum: [PENDING, RELEASED, REFUNDED, DISPUTE_FROZEN] }
+              disputeTicketId: { type: integer, format: int64, nullable: true }
 
     SubOrderSummary:
+      # 主键别名 + 联表/计算字段：任务标题与形态联 task，接单方昵称联 sys_user
+      x-field-map: { subOrderId: id }
+      x-computed: [taskTitle, taskForm, takerNickname]
       type: object
       properties:
         subOrderId: { type: integer, format: int64 }
@@ -3415,6 +3398,10 @@ components:
         createdAt: { type: string, format: date-time }
 
     SubOrderDetail:
+      # 主键别名 + 联表/计算字段（同 SubOrderSummary，另加若干子集合）
+      x-field-map: { subOrderId: id }
+      x-computed: [taskTitle, taskForm, takerNickname, deliveryUnits, deliveries,
+                   acceptanceItems, settlement]
       allOf:
         - $ref: '#/components/schemas/SubOrderSummary'
         - type: object
@@ -3444,6 +3431,8 @@ components:
               items: { type: string, example: DELIVER }
 
     DeliveryUnit:
+      # 主键别名：表主键是 id，接口按实体语义叫 unitId
+      x-field-map: { unitId: id }
       type: object
       description: ⭐ 统一结算单元 —— 资金动作与抽成的最小粒度
       properties:
@@ -3550,6 +3539,8 @@ components:
         mfaCode: { type: string }
 
     WithdrawApply:
+      # 计算字段：到账时间由信誉等级的提现周期（credit_level.withdraw_days）推算，不落库
+      x-computed: [expectedArrivalAt]
       type: object
       properties:
         withdrawNo: { type: string }
@@ -3623,6 +3614,9 @@ components:
         evidences: { type: array, items: { type: string } }
 
     DisputeTicket:
+      # 主键别名 + 联表/计算字段（taskTitle 联 task，slaRemainingSeconds 由 sla_deadline 算出）
+      x-field-map: { ticketId: id }
+      x-computed: [taskTitle, slaRemainingSeconds]
       type: object
       properties:
         ticketId: { type: integer, format: int64 }
@@ -3716,6 +3710,10 @@ components:
 
     # ---------- IM ----------
     ImSession:
+      # 主键别名 + 观察者相关字段：库里是 user_a/user_b 与 pinned_a/pinned_b，
+      # peer* 与 pinned 都取决于"谁在看"，属于按请求方计算，不落库
+      x-field-map: { sessionId: id }
+      x-computed: [peerUserId, peerNickname, peerAvatar, pinned]
       type: object
       properties:
         sessionId: { type: integer, format: int64 }
@@ -3730,6 +3728,8 @@ components:
         pinned: { type: boolean, description: ⚠️ 置顶会话在 BOSS 场景禁发；本平台仅作展示排序 }
 
     ImMessage:
+      # 主键别名：表主键是 id，接口叫 messageId
+      x-field-map: { messageId: id }
       type: object
       properties:
         messageId: { type: integer, format: int64 }
@@ -3846,6 +3846,9 @@ components:
         code: { type: string, example: "SUCCESS" }
         message: { type: string, example: "成功" }
     Review:
+      # 主键别名；taskId/taskTitle 需经 order 联到 task，fromUserNickname 联 sys_user，均不落库
+      x-field-map: { reviewId: id }
+      x-computed: [taskId, taskTitle, fromUserNickname]
       type: object
       properties:
         reviewId: { type: integer, format: int64 }

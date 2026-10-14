@@ -10,11 +10,13 @@
 
 | 目录 | 产物 | 规模 | 状态 |
 |---|---|---|---|
-| `docs/` | [总体设计文档](docs/2026-10-15-任务撮合平台-总体设计.md) | **v1.6** · 4652 行 · 30 张 Mermaid 图 | ✅ |
+| `docs/` | [总体设计文档](docs/2026-10-15-任务撮合平台-总体设计.md) | **v1.6** · 4688 行 · 30 张 Mermaid 图 | ✅ |
 | `docs/plans/` | [三端交付路线图](docs/plans/2026-10-15-三端交付路线图.md) | Web → 小程序 → App 串行 20 周 | ✅ |
 | `docs/plans/` | [P1 后端与 Web 端实施计划](docs/plans/2026-10-15-P1-后端与Web端实施计划.md) | **41 任务 · 117 个 TDD 步骤** | ✅ |
 | `db/migration/` | `V1`–`V6` Flyway 迁移 | **71 表 · 898 列 · 256 索引 · 41 个 CHECK** | ✅ MySQL 8.4 实跑通过 |
-| `api/` | [openapi.yaml](api/openapi.yaml) | **108 路径 · 132 操作 · 63 schema** | ✅ 机器校验通过 |
+| `tools/` | [check-consistency](tools/check-consistency/) | **五道跨产物一致性门禁** | ✅ 自测 10/10 · 真实产物 0 违规 · 反向验证 4/4 |
+| `platform-*/` | [M0 工程骨架](deploy/README.md) | Spring Boot 3.2 + JDK 21 | ✅ 20 个测试全绿 · 可启动 |
+| `api/` | [openapi.yaml](api/openapi.yaml) | **110 路径 · 138 操作 · 63 schema** | ✅ 机器校验通过 |
 | `api/` | [websocket-protocol.md](api/websocket-protocol.md) | IM 长连接协议（16 种消息 + 离线补偿） | ✅ |
 | `prototype/mp-weixin/` | [index.html](prototype/mp-weixin/index.html) | 小程序 **14 屏**，单文件零外部依赖 | ✅ |
 | `prototype/web-admin/` | [index.html](prototype/web-admin/index.html) | 管理端 **12 屏**（9 岗位裁剪菜单） | ✅ |
@@ -30,6 +32,28 @@
 **技术选型补充**（v1.6 之后新定，设计文档尚未收录）：手机 App 与微信小程序**共用 uni-app（Vue 3 语法）一套代码**，`#ifdef` 条件编译**只允许出现在 `src/platform/`**（支付 / 推送 / 上传 / 定位四处必然分叉）。
 
 ---
+
+## 一之二、跨产物一致性门禁（⭐ 最便宜也最值钱的一道检查）
+
+```bash
+cd tools/check-consistency && pnpm install
+pnpm test          # 门禁自测：good 必须 0 违规、bad 必须抓到
+pnpm check         # 对真实产物执行五道门禁
+```
+
+| 门禁 | 检查什么 | 抓的是哪类错 |
+|---|---|---|
+| ① DDL ↔ OpenAPI | 实体 schema 的每个字段必须是那张表的列（或在 schema 里声明 `x-computed` / `x-field-map`） | 接口字段拼错、引用了已改名的列 |
+| ② **DDL ↔ 文档** | 文档里的 `表.列` 引用必须存在 | ⭐ **§6.7 P0-① 那一类：文档与 DDL 直接矛盾** |
+| ③ OpenAPI ↔ DDL | 每张表都要有接口读写，或在白名单里声明为内部表 | 建了表忘了做接口（功能建一半） |
+| ④ 权限点 ↔ 代码 | `@PreAuthorize` 的权限点必须在 `sys_permission` 里 | 权限点写错一个字母 → 接口对所有人 403 |
+| ⑤ 事件 ↔ 消费方 | 事件的 producer/consumers 必须是真实模块 | 事件发出去没人消费 → 业务静默断链 |
+
+**门禁的设计取舍**（详见 [tools/check-consistency/README.md](tools/check-consistency/README.md)）：
+
+- **宁可精确，不要贪全**。第一版对全部 63 个 schema 一视同仁，结果几十个计算字段被误报 —— 白名单会变成垃圾桶，而**误报多的门禁一定会被关掉**。改成「只校验能明确映射到真实表的 18 个 schema」，反而更严（要求字段属于**正确的那张表**）。
+- **「bad 夹具必须报错」比「good 夹具通过」重要**。我们真正要防的是**门禁悄悄失效**。
+- **验收标准不是"门禁通过"，而是"故意注入缺陷它必须报错"**。实测 4/4 命中。
 
 ## 二、快速验证
 

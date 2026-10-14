@@ -1,0 +1,11 @@
+openapi: 3.0.3
+info: { title: fixture, version: "1" }
+paths: {}
+components:
+  schemas:
+    Task:
+      type: object
+      properties:
+        id: { type: integer }
+        taskNo: { type: string }
+        subAmount: { type: string }

@@ -1,0 +1,8 @@
+openapi: 3.0.3
+info: { title: fixture, version: "1" }
+paths:
+  /tasks:
+    get: { operationId: listTasks, responses: { "200": { description: ok } } }
+components:
+  schemas:
+    Task: { type: object, properties: { id: { type: integer } } }

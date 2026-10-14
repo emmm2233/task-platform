@@ -1,0 +1,14 @@
+{
+  "name": "@dsh/check-consistency",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "跨产物一致性门禁：DDL ↔ OpenAPI ↔ 文档 ↔ 权限点 ↔ 事件消费方",
+  "scripts": {
+    "check": "node check.mjs",
+    "test": "node test/run.mjs"
+  },
+  "dependencies": {
+    "yaml": "2.4.2"
+  }
+}
