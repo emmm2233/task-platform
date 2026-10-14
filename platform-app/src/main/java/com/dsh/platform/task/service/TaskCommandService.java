@@ -1,5 +1,6 @@
 package com.dsh.platform.task.service;
 
+import com.dsh.platform.common.db.RowValues;
 import com.dsh.platform.task.dto.CategoryNode;
 import com.dsh.platform.task.dto.TaskCreateRequest;
 import com.dsh.platform.task.dto.TaskCreateResult;
@@ -195,23 +196,18 @@ public class TaskCommandService {
      * 所以这里统一归一成空串。（主表列多，用的是"只插有值的列"那套。）
      */
     private static String nz(String s) {
-        return s == null ? "" : s;
+        // 委托到 RowValues —— 规则只保留一份实现（本项目曾 12 次踩 NOT NULL 写入）
+        return RowValues.nz(s);
     }
 
     /** 把字符串列表序列化成 JSON 数组（service_time_slots 等 JSON 列必须写合法 JSON）。 */
     private static String toJson(java.util.List<String> list) {
-        try {
-            return new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(list);
-        } catch (Exception e) {
-            throw new IllegalStateException("序列化 JSON 列失败", e);
-        }
+        return RowValues.toJson(list);
     }
 
     /** 只在有值时加入 —— 见 insert 处的注释（NOT NULL DEFAULT 与显式 null 的坑）。 */
     private static void putIfPresent(Map<String, Object> target, String col, Object value) {
-        if (value != null) {
-            target.put(col, value);
-        }
+        RowValues.putIfPresent(target, col, value);
     }
 
     /**

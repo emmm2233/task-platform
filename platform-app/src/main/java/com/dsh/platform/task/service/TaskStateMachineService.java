@@ -1,5 +1,6 @@
 package com.dsh.platform.task.service;
 
+import com.dsh.platform.common.db.RowValues;
 import com.dsh.platform.common.BizException;
 import com.dsh.platform.common.ErrorCode;
 import com.dsh.platform.task.statemachine.TaskEvent;
@@ -124,7 +125,8 @@ public class TaskStateMachineService {
 
     /** null → 空串（NOT NULL 文本列不能用 null 写入）。 */
     private static String nz(String s) {
-        return s == null ? "" : s;
+        // 委托到 RowValues —— 规则只保留一份实现（本项目曾 12 次踩 NOT NULL 写入）
+        return RowValues.nz(s);
     }
 
     /**
