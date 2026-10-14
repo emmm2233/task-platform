@@ -83,6 +83,11 @@
             <scope>test</scope>
         </dependency>
         <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>mysql</artifactId>
             <scope>test</scope>
@@ -107,6 +112,52 @@
                         </exclude>
                     </excludes>
                 </configuration>
+                <executions>
+                    <!--
+                      ⚠️ 必须显式绑定 repackage：本工程用的是自建父 pom（只 import BOM），
+                         ⛔ 没有继承 spring-boot-starter-parent，因此 Spring Boot 的
+                         默认执行绑定不会自动生效 —— 不加这段，package 只会产出瘦 jar。
+                    -->
+                    <execution>
+                        <id>repackage-executable-jar</id>
+                        <goals>
+                            <goal>repackage</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!--
+              ⭐ 迁移脚本单一来源：仓库根 db/migration 是唯一事实来源，
+                 构建时拷进 classpath:db/migration 供 Flyway 使用。
+                 ⛔ 不要在 resources 下再放一份副本 —— 两份 DDL 必然漂移。
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <version>3.3.1</version>
+                <executions>
+                    <execution>
+                        <id>copy-flyway-migrations</id>
+                        <phase>process-resources</phase>
+                        <goals>
+                            <goal>copy-resources</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.outputDirectory}/db/migration</outputDirectory>
+                            <overwrite>true</overwrite>
+                            <resources>
+                                <resource>
+                                    <directory>${project.basedir}/../db/migration</directory>
+                                    <filtering>false</filtering>
+                                    <includes>
+                                        <include>*.sql</include>
+                                    </includes>
+                                </resource>
+                            </resources>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

@@ -1,0 +1,100 @@
+# =====================================================================
+#  本地开发中间件编排（Docker Compose）
+#  ⚠️ 本机（开发机）未安装 Docker —— 本地开发改用已在运行的 MySQL84 服务，
+#     见 platform-app/src/main/resources/application-dev.yml 的 local-mysql profile。
+#     本文件供「有 Docker 的开发机 / CI / 预发环境」使用。
+#
+#  启动：docker compose -f deploy/docker-compose.dev.yml up -d
+#  版本对齐 G1：MySQL 8.0.36 · Redis 7.2 · RocketMQ 5.1 · MinIO
+# =====================================================================
+name: task-platform-dev
+
+services:
+  mysql:
+    image: mysql:8.0.36
+    container_name: tp-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123456}
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --transaction-isolation=READ-COMMITTED
+      - --default-time-zone=+08:00
+      - --max_connections=500
+    ports:
+      - "3306:3306"
+    volumes:
+      - tp-mysql-data:/var/lib/mysql
+      # 建库脚本：只建库，不建表（表由 Flyway 迁移创建，保证 DDL 单一来源）
+      - ./init/01-create-databases.sql:/docker-entrypoint-initdb.d/01-create-databases.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-root123456}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: tp-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-redis123456}"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - tp-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redis123456}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  rocketmq-namesrv:
+    image: apache/rocketmq:5.1.4
+    container_name: tp-rmq-namesrv
+    restart: unless-stopped
+    command: sh mqnamesrv
+    ports:
+      - "9876:9876"
+    volumes:
+      - tp-rmq-namesrv-logs:/home/rocketmq/logs
+
+  rocketmq-broker:
+    image: apache/rocketmq:5.1.4
+    container_name: tp-rmq-broker
+    restart: unless-stopped
+    depends_on:
+      - rocketmq-namesrv
+    environment:
+      NAMESRV_ADDR: rocketmq-namesrv:9876
+    command: sh mqbroker -c /home/rocketmq/conf/broker.conf
+    ports:
+      - "10909:10909"
+      - "10911:10911"
+    volumes:
+      - ./init/broker.conf:/home/rocketmq/conf/broker.conf:ro
+      - tp-rmq-broker-store:/home/rocketmq/store
+      - tp-rmq-broker-logs:/home/rocketmq/logs
+
+  minio:
+    image: minio/minio:RELEASE.2024-04-18T19-09-19Z
+    container_name: tp-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:-minioadmin}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - tp-minio-data:/data
+
+volumes:
+  tp-mysql-data:
+  tp-redis-data:
+  tp-rmq-namesrv-logs:
+  tp-rmq-broker-store:
+  tp-rmq-broker-logs:
+  tp-minio-data:

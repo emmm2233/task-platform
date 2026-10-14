@@ -1,0 +1,53 @@
+# =====================================================================
+#  本地开发配置
+#
+#  ⚠️ 环境偏差说明（本机无 Docker）：
+#     本文件默认走 local-mysql，连接**本机已在运行的 MySQL 8.4 服务**。
+#     若你的机器有 Docker，请改用 `--spring.profiles.active=dev,docker`，
+#     即使用 deploy/docker-compose.dev.yml 起的 MySQL 8.0.36。
+# =====================================================================
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    # ⚠️ characterEncoding 必须是 **Java 字符集名** UTF-8，
+    #    ⛔ 不能写 utf8mb4（那是服务端字符集名，Connector/J 会报 Unsupported character encoding）
+    url: jdbc:mysql://127.0.0.1:3306/task_platform?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true
+    username: root
+    password: "123456"
+    hikari:
+      minimum-idle: 5
+      maximum-pool-size: 20
+      connection-timeout: 30000
+      # ⛔ READ-COMMITTED：转账/扣减场景下减少间隙锁带来的死锁概率；
+      #    "先检查后更新"的竞态由条件 UPDATE 解决，不依赖可重复读（§3.2.1）
+      transaction-isolation: TRANSACTION_READ_COMMITTED
+
+  flyway:
+    enabled: true
+    # 迁移脚本单一来源是仓库根的 db/migration，由 maven-resources-plugin 在构建时拷进 classpath
+    locations: classpath:db/migration
+    baseline-on-migrate: false
+    validate-on-migrate: true
+    out-of-order: false
+    table: flyway_schema_history
+    # ⭐ 必须关闭占位符替换：种子数据里的通知模板合法包含 ${taskTitle} 这类**业务**占位符
+    #    （运行时由通知引擎替换），⛔ 不是 Flyway 占位符。
+    #    开启时 Flyway 解析阶段会抛 "No value provided for placeholder: ${var}"。
+    placeholder-replacement: false
+
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+      # ⚠️ ⛔ 不要写 password: ""！空字符串会被 Redisson 当成"有密码"而发送 AUTH，
+      #    无密码的 Redis 会回 ERR Client sent AUTH, but no password is set 并让应用起不来。
+      #    无密码就是不写这一行（null）。
+      database: 0
+      timeout: 3000ms
+
+# ---- 环境差异开关（供 health 与后续模块判断能力可用性）----
+platform:
+  env:
+    docker-available: false
+    redis-required: false     # T4 认证接入后置为 true
+    mq-required: false        # T15/T29 接入后置为 true

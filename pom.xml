@@ -28,7 +28,12 @@
         <rocketmq-spring.version>2.3.0</rocketmq-spring.version>
         <xxl-job.version>2.4.1</xxl-job.version>
         <redisson.version>3.27.2</redisson.version>
-        <flyway.version>10.10.0</flyway.version>
+        <!--
+          ⚠️ 版本偏差登记：设计文档 §1.1 写的是 Flyway 10.x，但 Spring Boot 3.2.x 官方仅配套
+             Flyway 9.x（BOM 管的是 9.22.3）。强上 10.x 会超出官方支持范围，
+             故本工程取 BOM 版本。若将来升到 Spring Boot 3.3+ 再随之升 Flyway 10。
+        -->
+        <flyway.version>9.22.3</flyway.version>
         <mapstruct.version>1.5.5.Final</mapstruct.version>
         <lombok.version>1.18.32</lombok.version>
         <jjwt.version>0.12.5</jjwt.version>

@@ -17,13 +17,17 @@ import java.time.format.DateTimeFormatter;
  *   "message": "OK",
  *   "data": { },
  *   "traceId": "a1b2c3d4e5f6",
- *   "timestamp": "2026-10-15T13:20:00+08:00"
+ *   "timestamp": "2026-10-15T13:20:00+08:00",
+ *   "success": true
  * }
  * </pre>
  *
  * <p>约定：
  * <ul>
  *   <li>{@code code} —— 业务码，0 为成功。HTTP 状态码表达协议层语义，业务码表达业务语义，两者并存不冲突。</li>
+ *   <li>{@code success} —— 由 {@link #isSuccess()} 派生（{@code code == 0}）。
+ *       冗余但<b>有意保留</b>：四端判断成功与否时不必各自记住"0 是成功"这个约定，
+ *       ⛔ 它<b>不是</b>独立字段，永远与 {@code code} 一致，接受方不得据它反推业务码。</li>
  *   <li>{@code traceId} —— <b>必须回传前端</b>，用户报障时直接提供，运维凭此定位全链路。</li>
  *   <li>{@code timestamp} —— 服务端时间，前端倒计时以此校准（⛔ 不用客户端本地时间）。</li>
  * </ul>
