@@ -45,8 +45,17 @@ spring:
       database: 0
       timeout: 3000ms
 
-# ---- 环境差异开关（供 health 与后续模块判断能力可用性）----
+# ---- 加密与密钥 ----
+# ⛔ 生产环境必须用环境变量注入，不得使用这里的开发值：
+#    PLATFORM_KEK（信封加密主密钥）· PLATFORM_JWT_SECRET（JWT 签名密钥）
 platform:
+  crypto:
+    kek: ${PLATFORM_KEK:ZGV2LW9ubHkta2VrLWRvLW5vdC11c2UtaW4tcHJvZCE=}
+    phone-salt: ${PLATFORM_PHONE_SALT:dev-only-phone-salt}
+    # HS256 要求 >= 32 字节
+    jwt-secret: ${PLATFORM_JWT_SECRET:dev-only-jwt-secret-please-change-in-production-0123456789}
+
+  # ---- 环境差异开关（供 health 与后续模块判断能力可用性）----
   env:
     docker-available: false
     redis-required: false     # T4 认证接入后置为 true

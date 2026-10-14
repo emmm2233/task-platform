@@ -27,9 +27,9 @@ mybatis-plus:
     banner: false
     db-config:
       id-type: auto
-      logic-delete-field: deleted
-      logic-delete-value: 1
-      logic-not-delete-value: 0
+      # ⛔ 不要配 logic-delete-field：本库**没有 deleted 列**。
+      #    配了会让 MyBatis-Plus 给每条查询拼上 `WHERE deleted = 0`，直接报未知列。
+      #    软状态一律用业务字段表达（sys_user.status / cancelled_at、task.status 等）。
 
 springdoc:
   api-docs:

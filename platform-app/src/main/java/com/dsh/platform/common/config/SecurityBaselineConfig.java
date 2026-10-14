@@ -10,6 +10,8 @@ import org.springframework.http.MediaType;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.www.BasicAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
@@ -43,6 +45,8 @@ public class SecurityBaselineConfig {
     /** 无需认证即可访问的路径（⛔ 新增必须经过评审）。 */
     private static final String[] PUBLIC_ENDPOINTS = {
             "/api/v1/health",
+            // 注册/登录/发验证码/换发令牌必须公开（各自自带限流与锁定防护）
+            "/api/v1/auth/**",
             "/actuator/health",
             "/actuator/health/**",
             "/actuator/info",
@@ -89,6 +93,15 @@ public class SecurityBaselineConfig {
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.setCharacterEncoding("UTF-8");
         objectMapper.writeValue(response.getWriter(), ApiResponse.fail(code));
+    }
+
+    /**
+     * 密码哈希。BCrypt 自带盐、可调成本因子。
+     * ⛔ 不要用 MD5/SHA 系列做密码哈希 —— 它们快，正是暴力破解需要的。
+     */
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder(10);
     }
 
     /**
