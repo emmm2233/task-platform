@@ -88,7 +88,9 @@ public class AuthService {
         u.setPermissionVersion(1);
         u.setSourceClient("web-user");
         u.setVersion(0);
-        userMapper.insert(u);
+        // ⭐ user_no 是 5 位随机，必然会有碰撞 —— 靠唯一键 + 重试兜住，而不是假装不会撞。
+        //    ⛔ 不要靠"概率很低"来省掉这段：测试跑几百个用户就撞了（本用例就是这么发现的）。
+        insertWithUniqueUserNo(u);
 
         return tokenService.issue(u, List.of("ROLE_USER"), "web-user");
     }
@@ -144,7 +146,27 @@ public class AuthService {
 
     // ------------------------------------------------------------------
 
-    /** 用户号：U + 年月日 + 5 位随机。真实实现应走号段服务，Phase 1 先用随机 + 唯一索引兜底。 */
+    /**
+     * 插入用户，user_no 撞唯一键就换一个重试。
+     *
+     * <p>Phase 1 用「随机 + 唯一索引 + 重试」，而不是号段服务 ——
+     * 号段服务要额外一张表与一次远程调用，而用户注册是低频写，重试成本可以忽略。
+     * ⚠️ 真出现持续碰撞（随机空间耗尽）时，重试会耗尽并抛出，那时再上号段服务。
+     */
+    private void insertWithUniqueUserNo(SysUser u) {
+        for (int attempt = 1; attempt <= 8; attempt++) {
+            u.setUserNo(nextUserNo());
+            try {
+                userMapper.insert(u);
+                return;
+            } catch (org.springframework.dao.DuplicateKeyException e) {
+                log.warn("user_no 碰撞，重试 {}/8", attempt);
+            }
+        }
+        throw new BizException(ErrorCode.SYSTEM_BUSY, "用户号生成失败，请重试");
+    }
+
+    /** 用户号：U + 年月日 + 5 位随机。 */
     private String nextUserNo() {
         return "U" + LocalDateTime.now(clock).toInstant(java.time.ZoneOffset.ofHours(8))
                 .atZone(ZONE).toLocalDate().toString().replace("-", "")
