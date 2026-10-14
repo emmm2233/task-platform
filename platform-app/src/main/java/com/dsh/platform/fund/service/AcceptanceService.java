@@ -43,6 +43,7 @@ public class AcceptanceService {
 
     private final TaskStateMachineService sm;
     private final SettlementService settlementService;
+    private final SettlementDocumentService docs;
     private final JdbcTemplate jdbc;
     private final Clock clock;
 
@@ -101,122 +102,10 @@ public class AcceptanceService {
         BigDecimal amount = (BigDecimal) e.get(0).get("amount");
 
         Long takerId = jdbc.queryForObject("SELECT assignee_id FROM task WHERE id = ?", Long.class, taskId);
-        ensureWholeShare(taskId, orderId, escrowId, takerId, amount);
+        // ⭐ 单据补齐已抽到 SettlementDocumentService（原先两处各有一份实现）
+        docs.ensureWholeShare(taskId, orderId, escrowId, takerId, amount);
 
         settlementService.settle(orderId, escrowId);
     }
 
-    /** 任务截止时间（子订单的 deadline 是 NOT NULL，需继承它）。 */
-    private LocalDateTime taskDeadline(Long taskId) {
-        return jdbc.queryForObject("SELECT deadline FROM task WHERE id = ?", LocalDateTime.class, taskId);
-    }
-
-    /**
-     * 取（必要时补建）中标记录。
-     *
-     * <p>⭐ 为什么补建而不是绕过：{@code award} 是"这单派给了谁、按什么方式派"的唯一记录。
-     * 抢单任务若没有 award，资金链路就说不清这笔钱是依据什么派出去的 ——
-     * 而争议时第一个要回答的就是这个问题。
-     *
-     * <p>幂等键取 {@code ASSIGN:<taskId>}，重复调用不会建出多条。
-     */
-    private Long ensureAward(Long taskId, Long takerId, BigDecimal amount, LocalDateTime now) {
-        List<Long> ids = jdbc.queryForList(
-                "SELECT id FROM award WHERE task_id = ? ORDER BY id LIMIT 1", Long.class, taskId);
-        if (!ids.isEmpty()) {
-            return ids.get(0);
-        }
-        Map<String, Object> task = jdbc.queryForMap(
-                "SELECT award_mode, grant_mode, publisher_id FROM task WHERE id = ?", taskId);
-        Map<String, Object> a = RowValues.of(
-                "task_id", taskId,
-                "awardee_id", takerId,
-                "awarded_amount", amount,
-                "award_mode", String.valueOf(task.get("award_mode")),
-                "grant_mode", String.valueOf(task.get("grant_mode")),
-                "awarded_by", task.get("publisher_id"),
-                "idempotent_key", "ASSIGN:" + taskId,
-                "created_at", now);
-        String[] p = RowValues.insertParts(a);
-        jdbc.update("INSERT INTO award (" + p[0] + ") VALUES (" + p[1] + ")", a.values().toArray());
-        Long id = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
-        log.info("已补建中标记录 taskId={} awardId={}（抢单路径无 award，语义上即一次指派）", taskId, id);
-        return id;
-    }
-
-    /**
-     * 确保存在一条 {@code WHOLE} 份额（Phase 1 一个任务一个结算单元）。
-     *
-     * <p>⚠️ 三级单据的创建顺序不能变：{@code sub_order} → {@code delivery_unit} → {@code escrow_share}，
-     * 因为后两者要引用前者的 id。
-     */
-    private void ensureWholeShare(Long taskId, Long orderId, Long escrowId,
-                                  Long takerId, BigDecimal amount) {
-        Integer exists = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM escrow_share WHERE escrow_id = ?", Integer.class, escrowId);
-        if (exists != null && exists > 0) {
-            return;
-        }
-        LocalDateTime now = LocalDateTime.now(clock);
-
-        // ⚠️ sub_order.award_id 是 NOT NULL —— DDL 期望【每个子订单都源自一次中标】。
-        //    但抢单路径本来没有 award 记录，所以这里补齐一条：
-        //    抢单在语义上就是"一次即时的指派"，给它留一条 award 才是自洽的
-        //    （也让资金链路能回答"这单是怎么派出去的"）。
-        //    ⛔ 不要为了绕过非空约束填 0 或 NULL —— 那会让审计与对账无从追溯。
-        Long awardId = ensureAward(taskId, takerId, amount, now);
-
-        // 子订单
-        Map<String, Object> so = RowValues.of(
-                "sub_order_no", "S" + Long.toString(System.nanoTime(), 36),
-                "order_id", orderId,
-                "task_id", taskId,
-                "taker_id", takerId,
-                "award_id", awardId,
-                "amount", amount,
-                "status", "COMPLETED",
-                // ⚠️ sub_order.deadline 是 NOT NULL 无默认值 —— 继承任务截止时间。
-                //    这里是"按需补齐单据"的路径，所以直接沿用任务的 deadline；
-                //    等履约域落齐、子订单在指派时创建，它会取当时的约定时间。
-                "deadline", taskDeadline(taskId),
-                "modify_round", 0,
-                "dispute_frozen", 0,
-                "version", 0,
-                "created_at", now,
-                "updated_at", now);
-        String[] p1 = RowValues.insertParts(so);
-        jdbc.update("INSERT INTO sub_order (" + p1[0] + ") VALUES (" + p1[1] + ")", so.values().toArray());
-        Long subOrderId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
-
-        // 结算单元（Phase 1 一律 WHOLE）
-        Map<String, Object> du = RowValues.of(
-                "unit_no", "U" + Long.toString(System.nanoTime(), 36),
-                "sub_order_id", subOrderId,
-                "order_id", orderId,
-                "unit_type", "WHOLE",
-                "seq", 1,
-                "name", "整体交付",
-                "amount", amount,
-                "status", "ACCEPTED",
-                "created_at", now);
-        String[] p2 = RowValues.insertParts(du);
-        jdbc.update("INSERT INTO delivery_unit (" + p2[0] + ") VALUES (" + p2[1] + ")", du.values().toArray());
-        Long unitId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
-
-        // 份额
-        Map<String, Object> sh = RowValues.of(
-                "escrow_id", escrowId,
-                "order_id", orderId,
-                "sub_order_id", subOrderId,
-                "unit_id", unitId,
-                "taker_id", takerId,
-                "share_amount", amount,
-                "status", "PENDING",
-                "version", 0,
-                "created_at", now,
-                "updated_at", now);
-        String[] p3 = RowValues.insertParts(sh);
-        jdbc.update("INSERT INTO escrow_share (" + p3[0] + ") VALUES (" + p3[1] + ")", sh.values().toArray());
-        log.info("已补齐结算单据 taskId={} subOrderId={} unitId={} 份额={}", taskId, subOrderId, unitId, amount);
-    }
 }
