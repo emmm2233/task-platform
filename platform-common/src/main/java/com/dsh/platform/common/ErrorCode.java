@@ -108,7 +108,12 @@ public enum ErrorCode {
     // ---------- 90xxx 外部渠道 ----------
     CHANNEL_TIMEOUT(90001, "支付渠道超时，请稍后重试"),
     CHANNEL_SIGN_INVALID(90002, "渠道验签失败"),
-    CHANNEL_ERROR(90003, "支付渠道返回异常");
+    CHANNEL_ERROR(90003, "支付渠道返回异常"),
+
+    // ---------- 资金段 ----------
+    /** 支付金额与应付金额不一致（少付后面不够分，多付要走退款分支）。 */
+    AMOUNT_MISMATCH(40007, "支付金额与应付金额不一致"),
+    ;
 
     /** 业务码。 */
     private final int code;
