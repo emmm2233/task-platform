@@ -26,6 +26,9 @@ importers:
       '@dcloudio/uni-mp-weixin':
         specifier: 3.0.0-alpha-5030120260930001
         version: 3.0.0-alpha-5030120260930001(postcss@8.5.30)(rollup@4.64.6)(vue@3.5.44(typescript@5.7.2))
+      '@task/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       vue:
         specifier: ^3.4.21
         version: 3.5.44(typescript@5.7.2)
@@ -64,6 +67,9 @@ importers:
 
   apps/web-user:
     dependencies:
+      '@task/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       vue:
         specifier: ^3.5.13
         version: 3.5.44(typescript@5.7.2)

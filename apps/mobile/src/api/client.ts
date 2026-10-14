@@ -8,7 +8,11 @@ import { baseUrl } from '../platform/env';
  * ⛔ 但条件编译本身只允许出现在 src/platform/，所以这里用运行时判断 uni 是否存在，
  *    而不是 #ifdef —— 保持"差异集中在 platform/"这条纪律。
  */
-export interface Envelope<T> { code: number; message: string; data: T; success: boolean; traceId?: string }
+// ⭐ 类型来自 @task/shared —— 四端共用一份契约。
+//    ⛔ 原先这里手写了一份 TaskSummary，那是【已记录的漂移风险点】：
+//       后端改字段名，三端要到运行时才发现。
+import type { Envelope, PageResult, TaskSummary } from '@task/shared';
+export type { Envelope, PageResult, TaskSummary };
 
 export function request<T>(url: string, method: 'GET' | 'POST' = 'GET', data?: unknown): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -34,12 +38,6 @@ export function request<T>(url: string, method: 'GET' | 'POST' = 'GET', data?: u
   });
 }
 
-export interface TaskSummary {
-  taskId: number; title: string; categoryName: string;
-  status: string; statusName: string; statusGroup: string;
-  budgetMax: number | null; price: number | null;
-}
-export interface PageResult<T> { list: T[]; cursor: string | null; hasMore: boolean }
 
 export function hall(params: { keyword?: string; cursor?: string | null; pageSize?: number }) {
   const qs = Object.entries(params)

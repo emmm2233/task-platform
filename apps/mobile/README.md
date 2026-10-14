@@ -63,9 +63,10 @@
 
 ## 与两端 Web 的复用
 
-- 接口形状与 web-user 一致（统一信封 `{code,message,data,traceId,success}`）。
-  ⚠️ 目前**手写了一份** `TaskSummary`，**尚未接到 `@task/shared`** ——
-  这是已知的漂移风险点，如实记录，别当成已完成。
+- ⭐ 类型来自 `@task/shared`（四端共用一份契约，由 `api/openapi.yaml` 自动生成）。
+  **实测：uni-app 编译器能直接解析 workspace 里的 `.ts` 源码**，
+  不需要预编译产物 —— 这一点当初是未知项，跑过才确认。
+  ⛔ 不要再在这里手写接口类型：后端改个字段名，三端要到运行时才发现。
 - ⚠️ 小程序没有 `fetch`，用 `uni.request`。封装在 `src/api/client.ts`。
 
 ## 大厅是匿名的

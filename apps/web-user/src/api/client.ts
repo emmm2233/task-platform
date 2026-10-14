@@ -9,38 +9,10 @@
  * （例如非法游标返回 200 + success=false）。
  * 所以这里【同时】检查 HTTP 与信封里的 success。
  */
-export interface Envelope<T> {
-  code: number;
-  message: string;
-  data: T;
-  traceId?: string;
-  success: boolean;
-}
-
-export interface PageResult<T> {
-  list: T[];
-  cursor: string | null;
-  hasMore: boolean;
-}
-
-export interface TaskSummary {
-  taskId: number;
-  taskNo: string;
-  title: string;
-  categoryCode: string;
-  categoryName: string;
-  taskForm: string;
-  payMode: string;
-  status: string;
-  statusName: string;
-  statusGroup: string;
-  price: number | null;
-  budgetMin: number | null;
-  budgetMax: number | null;
-  deadline: string | null;
-  publishedAt: string | null;
-  publisherNickname: string | null;
-}
+// ⭐ 类型来自 @task/shared —— 四端共用一份契约（由 api/openapi.yaml 自动生成）。
+//    ⛔ 不要再在这里手写接口类型：后端改个字段名，前端要到运行时才发现。
+import type { Envelope, PageResult, TaskSummary } from '@task/shared';
+export type { Envelope, PageResult, TaskSummary };
 
 export class ApiError extends Error {
   readonly code: number;
