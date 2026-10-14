@@ -96,7 +96,11 @@ public class TaskCommandService {
         putIfPresent(c, "ip_ownership", req.getIpOwnership());
         putIfPresent(c, "min_credit_level", req.getMinCreditLevel());
         if (req.getServiceTimeSlots() != null && !req.getServiceTimeSlots().isEmpty()) {
-            c.put("service_time_slots", String.join(",", req.getServiceTimeSlots()));
+            // ⚠️ service_time_slots 是 **JSON 列**，必须写合法 JSON 数组。
+            //    写成逗号分隔的普通字符串会报
+            //    "Invalid JSON text: The document root must not be followed by other values"。
+            //    （同一张表里 tags / skills / commission_snapshot / invited_user_ids 也是 JSON 列。）
+            c.put("service_time_slots", toJson(req.getServiceTimeSlots()));
         }
         putIfPresent(c, "created_at", now);
         putIfPresent(c, "updated_at", now);
@@ -156,7 +160,9 @@ public class TaskCommandService {
                       (task_id, province, city, district, address, lng, lat, service_radius_km, need_checkin, created_at)
                     VALUES (?,?,?,?,?,?,?,?,?,?)
                     """, taskId, nz(loc.getProvince()), nz(loc.getCity()), nz(loc.getDistrict()), nz(loc.getAddress()),
-                    loc.getLng(), loc.getLat(), loc.getServiceRadiusKm(),
+                    loc.getLng(), loc.getLat(),
+                    // service_radius_km 是 NOT NULL 无默认值；未填视为"不设服务半径"
+                    loc.getServiceRadiusKm() == null ? 0 : loc.getServiceRadiusKm(),
                     Boolean.TRUE.equals(loc.getNeedCheckin()) ? 1 : 0, now);
         }
 
@@ -190,6 +196,15 @@ public class TaskCommandService {
      */
     private static String nz(String s) {
         return s == null ? "" : s;
+    }
+
+    /** 把字符串列表序列化成 JSON 数组（service_time_slots 等 JSON 列必须写合法 JSON）。 */
+    private static String toJson(java.util.List<String> list) {
+        try {
+            return new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(list);
+        } catch (Exception e) {
+            throw new IllegalStateException("序列化 JSON 列失败", e);
+        }
     }
 
     /** 只在有值时加入 —— 见 insert 处的注释（NOT NULL DEFAULT 与显式 null 的坑）。 */

@@ -2,6 +2,7 @@ package com.dsh.platform.task.statemachine;
 
 import com.dsh.platform.common.BizException;
 import com.dsh.platform.common.ErrorCode;
+import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -36,6 +37,7 @@ import java.util.Objects;
  * 落库（更新 {@code task.status} + 写 {@code task_status_log}）由上层服务负责 ——
  * 这样状态规则可以脱离 Spring 上下文被穷举测试。
  */
+@Component
 public class TaskStateMachine {
 
     /** 迁移表：起始状态 → (事件 → 目标状态)。 */
