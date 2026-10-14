@@ -60,6 +60,7 @@ import java.util.Map;
 public class EscrowService {
 
     private final TaskStateMachineService sm;
+    private final LedgerService ledgerService;
     private final JdbcTemplate jdbc;
     private final Clock clock;
 
@@ -153,7 +154,13 @@ public class EscrowService {
                 escCols.values().toArray());
         Long escrowId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
 
-        // ⑥ 状态机分流：抢单 → RECRUITING，竞拍 → BIDDING
+        // ⑥ 账本：渠道 → 托管池（frozen 增加）
+        //    ⭐ 必须在推进状态机【之前】—— 状态一变就对外可见"可接单"了，
+        //       而钱还没入账的话，接单方可能已经开始干活。
+        //    幂等键由渠道单号派生：即便 ① 的早退判断因并发失效，uk_idem 仍会兜住。
+        ledgerService.freezeEscrow(orderId, escrowId, paid, "ESCROW_FREEZE:" + channelOrderNo);
+
+        // ⑦ 状态机分流：抢单 → RECRUITING，竞拍 → BIDDING
         TaskEvent event = "GRAB".equals(grantMode)
                 ? TaskEvent.ESCROW_PAID_GRAB : TaskEvent.ESCROW_PAID_BID;
         sm.fire(taskId, event, publisherId, TaskStateMachineService.OP_SYSTEM, "托管支付成功");

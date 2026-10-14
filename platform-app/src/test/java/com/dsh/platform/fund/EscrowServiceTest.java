@@ -118,6 +118,43 @@ class EscrowServiceTest {
         assertThat(jdbc.queryForObject(
                 "SELECT amount FROM escrow WHERE id = ?", BigDecimal.class, r.getEscrowId()))
                 .isEqualByComparingTo("5000.00");
+
+        // ⭐ 账本必须同步记一笔：escrow 表只说明"这笔钱托管了"，
+        //    账本才回答"平台账上现在有多少托管中的钱"。两者脱节则对账无从做起。
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM wallet_txn WHERE escrow_id = ? AND biz_type = 'ESCROW_FREEZE'",
+                Integer.class, r.getEscrowId()))
+                .as("托管成功必须在账本留下冻结分录")
+                .isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+                "SELECT frozen FROM wallet_account WHERE account_type = 'ESCROW_HOLD' AND user_id IS NULL",
+                BigDecimal.class))
+                .as("托管池 frozen 应包含这笔托管")
+                .isGreaterThanOrEqualTo(new BigDecimal("5000.00"));
+    }
+
+    @Test
+    @DisplayName("⭐ 幂等重推时不重复入账（账本不能因为渠道重推把托管池加两次）")
+    void ledger_is_not_duplicated_on_idempotent_retry() {
+        Long taskId = seedPendingEscrow("BID", "BID");
+        String channelNo = "CH-ledger-" + RANDOM.nextInt(1_000_000);
+
+        EscrowResult first = escrowService.fund(taskId, publisherId,
+                new BigDecimal("5000.00"), channelNo, "WECHAT");
+        BigDecimal frozenAfterFirst = jdbc.queryForObject(
+                "SELECT frozen FROM wallet_account WHERE account_type = 'ESCROW_HOLD' AND user_id IS NULL",
+                BigDecimal.class);
+
+        escrowService.fund(taskId, publisherId, new BigDecimal("5000.00"), channelNo, "WECHAT");
+
+        assertThat(jdbc.queryForObject(
+                "SELECT frozen FROM wallet_account WHERE account_type = 'ESCROW_HOLD' AND user_id IS NULL",
+                BigDecimal.class))
+                .as("渠道重推不能让托管池凭空多一笔")
+                .isEqualByComparingTo(frozenAfterFirst);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM wallet_txn WHERE escrow_id = ?", Integer.class, first.getEscrowId()))
+                .isEqualTo(1);
     }
 
     @Test
