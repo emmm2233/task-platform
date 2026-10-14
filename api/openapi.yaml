@@ -1,0 +1,3885 @@
+openapi: 3.0.3
+
+info:
+  title: 任务撮合平台 API
+  version: 1.0.0
+  description: |
+    # 任务撮合平台 · Web 端接口清单
+
+    对应设计文档：`docs/2026-10-15-任务撮合平台-总体设计.md`
+    数据库基线：`db/migration/V1~V5`
+
+    ## 通用约定
+    - 前缀：`/api/v1`；角色域路径即权限域：`/api/**`（用户）· `/api/v1/op/**`（操作员）· `/api/v1/admin/**`（管理员）
+    - 认证：`Authorization: Bearer <accessToken>`（Access 15min + Refresh 7d 一次性）
+    - **金额一律字符串**（`"1000.00"`），⛔ 不用 JSON number（避免各端浮点精度差异）
+    - **时间一律 ISO-8601 带时区**（`2026-10-15T13:20:00+08:00`）
+    - 写接口必须传 `Idempotency-Key`（金额/抢单/中标类**强制**）
+    - 多端能力协商：`X-Client` / `X-Client-Version`
+    - 列表分页：管理端用 `pageNum/pageSize`，**移动端信息流用 `cursor`**（offset 分页在下拉刷新时会重复/漏项）
+    - 每个响应带 `traceId`，用户报障时直接提供
+
+    ## ⛔ 三条不容违反的接口层红线
+    1. **请求体里的 `userId` / `role` / `publisherId` 一律忽略**，身份只从令牌取（防越权）
+    2. **金额一律服务端计算**，绝不接受客户端传入的应付金额
+    3. **每个访问资源的接口都必须做对象级授权**（改他人订单 ID 必须 403/404）
+
+  contact:
+    name: 平台研发
+  license:
+    name: Proprietary
+
+servers:
+  - url: https://api.example.com/api/v1
+    description: 生产
+  - url: https://stg-api.example.com/api/v1
+    description: 预发（与生产同构）
+  - url: http://localhost:8080/api/v1
+    description: 本地开发（支付走 MockPaymentGateway）
+
+tags:
+  - name: auth
+    description: 认证与会话
+  - name: account
+    description: 账户、实名、信誉分
+  - name: task
+    description: 任务（发单方视角）· 三维类型与 18 状态
+  - name: award
+    description: 抢单与竞拍
+  - name: order
+    description: 订单履约、交付、验收
+  - name: wallet
+    description: 钱包、托管、提现、抽成预估
+  - name: dispute
+    description: 争端与仲裁
+  - name: im
+    description: 即时通讯
+  - name: notify
+    description: 通知
+  - name: common
+    description: 公共（分类、字典、端能力、上传）
+  - name: op
+    description: 操作员域（需 OPERATOR 身份 + 岗位权限点）
+  - name: admin
+    description: 管理域（需 ADMIN 身份）
+
+security:
+  - bearerAuth: []
+
+paths:
+
+  # ===================================================================
+  # AUTH · 认证与会话
+  # ===================================================================
+  /auth/sms-code:
+    post:
+      operationId: postAuthSms-code
+      tags: [auth]
+      summary: 发送短信验证码
+      description: |
+        ⚠️ 四维限流：手机号 / IP / 设备指纹 / 全局。
+        同号 1 小时 ≤5 条、1 天 ≤10 条。
+        ⛔ 未通过图形验证码不得发送（否则会被用作短信轰炸机）。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone, scene, captchaTicket]
+              properties:
+                phone: { type: string, example: "13800138000" }
+                scene:
+                  type: string
+                  enum: [REGISTER, LOGIN, RESET_PWD, BIND_PHONE, WITHDRAW]
+                captchaTicket: { type: string, description: 图形验证码通过后返回的票据 }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /auth/register:
+    post:
+      operationId: postAuthRegister
+      tags: [auth]
+      summary: 注册
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/ClientHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone, smsCode, password]
+              properties:
+                phone: { type: string }
+                smsCode: { type: string }
+                password:
+                  type: string
+                  description: ≥8 位，含大小写与数字，⛔ 拒绝 Top 10 万弱口令
+                inviteCode: { type: string }
+      responses:
+        '200':
+          description: 注册成功（默认信誉分 60，等级 NORMAL）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data: { $ref: '#/components/schemas/LoginResult' }
+
+  /auth/login:
+    post:
+      operationId: postAuthLogin
+      tags: [auth]
+      summary: 密码 / 验证码登录
+      description: |
+        ⛔ 登录失败文案**不得区分**"账号不存在"与"密码错误"（防账号枚举）。
+        失败 5 次锁定 15 分钟；触发后强制图形验证码。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [loginType, account]
+              properties:
+                loginType: { type: string, enum: [PASSWORD, SMS] }
+                account: { type: string, description: 手机号 }
+                password: { type: string }
+                smsCode: { type: string }
+                deviceId: { type: string, description: 设备指纹 }
+                captchaTicket: { type: string }
+      responses:
+        '200':
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data: { $ref: '#/components/schemas/LoginResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '423':
+          description: 账号锁定（20006）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+
+  /auth/refresh:
+    post:
+      operationId: postAuthRefresh
+      tags: [auth]
+      summary: 刷新令牌
+      description: ⭐ Refresh Token **一次性使用**，用完即换、旧的立即失效（防重放）。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string }
+      responses:
+        '200':
+          description: 新的令牌对
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data: { $ref: '#/components/schemas/LoginResult' }
+
+  /auth/logout:
+    post:
+      operationId: postAuthLogout
+      tags: [auth]
+      summary: 登出
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /auth/menus:
+    get:
+      operationId: getAuthMenus
+      tags: [auth]
+      summary: 获取当前用户菜单与路由（⭐ 动态路由）
+      description: |
+        `web-admin` 登录后按此下发菜单与路由；操作员看不到「账号管理」「权限配置」。
+        ⚠️ 前端菜单裁剪**只是体验优化，不是安全措施** —— 后端仍逐个接口鉴权。
+      responses:
+        '200':
+          description: 菜单树
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/MenuNode' }
+
+  # ===================================================================
+  # ACCOUNT · 账户 / 实名 / 信誉分
+  # ===================================================================
+  /account/profile:
+    get:
+      operationId: getAccountProfile
+      tags: [account]
+      summary: 我的资料
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data: { $ref: '#/components/schemas/UserProfile' }
+    put:
+      operationId: putAccountProfile
+      tags: [account]
+      summary: 修改资料
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                nickname: { type: string, maxLength: 32 }
+                avatarUrl: { type: string }
+                intro: { type: string, maxLength: 500 }
+                serviceRegion: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /account/real-name:
+    post:
+      operationId: postAccountReal-name
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      tags: [account]
+      summary: 提交实名认证
+      description: ⚠️ 身份证号、证件图为 **L4 极敏感**数据：单独加密、独立 Bucket、审核岗才可解密查看。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [realType, realName, idCardNo, idCardFront, idCardBack]
+              properties:
+                realType: { type: string, enum: [PERSONAL, ENTERPRISE] }
+                realName: { type: string }
+                idCardNo: { type: string, description: 服务端立即加密，不回显、不落日志 }
+                idCardFront: { type: string, description: 私有 Bucket key }
+                idCardBack: { type: string }
+                faceVerifyId: { type: string, description: 人脸核身流水号 }
+                enterpriseName: { type: string }
+                licenseNo: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+    get:
+      operationId: getAccountReal-name
+      tags: [account]
+      summary: 我的实名状态（返回脱敏串，不解密明文）
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data: { $ref: '#/components/schemas/RealNameInfo' }
+
+  /account/credit:
+    get:
+      operationId: getAccountCredit
+      tags: [account]
+      summary: 我的信誉分与等级（UC-U-80）
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data: { $ref: '#/components/schemas/CreditInfo' }
+
+  /account/credit/privileges:
+    get:
+      operationId: getAccountCreditPrivileges
+      tags: [account]
+      summary: ⭐ 我的权益（唯一出口）
+      description: |
+        返回抢单门槛、进行中上限、排序权重、**抽成费率修正**、**提现周期**、托管要求、举证责任。
+        ⛔ 前端展示的权益必须与后端实际执行的**同一份数据**，否则用户会看到"说好 T+1 却给了 T+3"。
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data: { $ref: '#/components/schemas/UserPrivileges' }
+
+  /account/credit/logs:
+    get:
+      operationId: getAccountCreditLogs
+      tags: [account]
+      summary: 信誉分变动明细（UC-U-82）
+      parameters:
+        - $ref: '#/components/parameters/PageNum'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        allOf:
+                          - $ref: '#/components/schemas/PageResult'
+                          - properties:
+                              list:
+                                type: array
+                                items: { $ref: '#/components/schemas/CreditLog' }
+
+  /account/credit/appeals:
+    post:
+      operationId: postAccountCreditAppeals
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      tags: [account]
+      summary: 对扣分发起申诉（UC-U-83，一次性、7 天内）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [creditLogId, reason]
+              properties:
+                creditLogId: { type: integer, format: int64 }
+                reason: { type: string, maxLength: 1000 }
+                evidences: { type: array, items: { type: string } }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+        '70006': { $ref: '#/components/responses/Error' }
+
+  /account/devices:
+    get:
+      operationId: getAccountDevices
+      tags: [account]
+      summary: 我的登录设备
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+  /account/devices/{deviceId}:
+    delete:
+      operationId: deleteAccountDevicesByDeviceId
+      tags: [account]
+      summary: 踢出某设备
+      parameters:
+        - name: deviceId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  # ===================================================================
+  # TASK · 任务（发单方视角）
+  # ===================================================================
+  /tasks:
+    get:
+      operationId: getTasks
+      tags: [task]
+      summary: 任务大厅
+      description: |
+        默认只返回 `RECRUITING` / `BIDDING` 状态、且通过风控与可见性过滤的任务。
+        **移动端请用 cursor 分页**（下拉刷新时 offset 会重复/漏项）。
+      parameters:
+        - { name: keyword, in: query, schema: { type: string } }
+        - { name: categoryId, in: query, schema: { type: integer, format: int64 } }
+        - { name: categoryPath, in: query, schema: { type: string }, description: 按一级分类检索，如 "1" }
+        - name: taskForm
+          in: query
+          schema: { $ref: '#/components/schemas/TaskForm' }
+        - name: payMode
+          in: query
+          schema: { $ref: '#/components/schemas/PayMode' }
+        - name: grantMode
+          in: query
+          schema: { $ref: '#/components/schemas/GrantMode' }
+        - { name: amountMin, in: query, schema: { type: string } }
+        - { name: amountMax, in: query, schema: { type: string } }
+        - { name: lng, in: query, schema: { type: number, format: double }, description: 线下任务按真 km 距离排序 }
+        - { name: lat, in: query, schema: { type: number, format: double } }
+        - { name: maxDistanceKm, in: query, schema: { type: integer } }
+        - { name: sort, in: query, schema: { type: string, enum: [LATEST, AMOUNT_DESC, DISTANCE_ASC, CREDIT_DESC] } }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        allOf:
+                          - $ref: '#/components/schemas/PageResult'
+                          - properties:
+                              list:
+                                type: array
+                                items: { $ref: '#/components/schemas/TaskSummary' }
+    post:
+      operationId: postTasks
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      tags: [task]
+      summary: 创建任务（草稿）
+      description: |
+        ⚠️ **校验规则随三维类型动态变化**（详见设计 §5.14.5）：
+        - `taskForm=OFFLINE|HYBRID` → `location` 必填（含经纬度）、`serviceTimeSlots` 必填
+        - `payMode=FIXED` → `price` 必填，且 `grantMode` 只能 `GRAB`
+        - `payMode=BID` → `budgetMin/Max` 必填，且 `grantMode` 只能 `BID`
+        - `payMode=BY_QUANTITY` → `unitPrice/quantity/unit` 必填
+        - `payMode=BY_DAY` → `dayRate/days` 必填
+        - `payMode=MILESTONE` → `milestones` ≥2 个且 Σ金额 == 总预算，且 **`awardMode` 只能 SINGLE**（Phase 1）
+        - **`acceptanceItems` 至少 1 项**（⭐ 没有它，恶意驳回就无法裁决）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TaskCreateRequest' }
+      responses:
+        '200':
+          description: 草稿创建成功（返回 taskNo）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        type: object
+                        properties:
+                          taskId: { type: integer, format: int64 }
+                          taskNo: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /tasks/{taskId}:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    get:
+      operationId: getTasksByTaskId
+      tags: [task]
+      summary: 任务详情
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data: { $ref: '#/components/schemas/TaskDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      operationId: putTasksByTaskId
+      tags: [task]
+      summary: 编辑任务
+      description: ⛔ 仅 `DRAFT` / `AUDIT_REJECTED` 可编辑；`taskForm` **发布后不可修改**。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TaskCreateRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+        '409': { $ref: '#/components/responses/StateConflict' }
+    delete:
+      operationId: deleteTasksByTaskId
+      tags: [task]
+      summary: 删除草稿
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /tasks/{taskId}/publish:
+    post:
+      operationId: postTasksByTaskIdPublish
+      tags: [task]
+      summary: 提交发布
+      description: 触发机审；命中则转人工审核队列（`PENDING_AUDIT`）。
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /tasks/{taskId}/cancel:
+    post:
+      operationId: postTasksByTaskIdCancel
+      tags: [task]
+      summary: 取消任务
+      description: |
+        未中标可免费取消；已中标需按规则赔付。
+        ⚠️ 取消与抢单竞争同一行锁，**必有一个失败**（不会出现"既取消又中标"）。
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string, maxLength: 500 }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+        '409': { $ref: '#/components/responses/StateConflict' }
+
+  /tasks/{taskId}/status-logs:
+    get:
+      operationId: getTasksByTaskIdStatus-logs
+      tags: [task]
+      summary: 任务状态时间轴（UC-U-96）
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/TaskStatusLog' }
+
+  /tasks/mine:
+    get:
+      operationId: getTasksMine
+      tags: [task]
+      summary: 我发布的任务
+      parameters:
+        - name: statusGroup
+          in: query
+          schema: { type: string, enum: [DRAFT, RECRUIT, PERFORM, CLOSE, TERMINAL] }
+        - $ref: '#/components/parameters/PageNum'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        allOf:
+                          - $ref: '#/components/schemas/PageResult'
+                          - properties:
+                              list:
+                                type: array
+                                items: { $ref: '#/components/schemas/TaskSummary' }
+
+  /tasks/preview-commission:
+    post:
+      operationId: postTasksPreview-commission
+      tags: [wallet, task]
+      summary: ⭐ 抽成预估（报价/发单时实时显示「金额 / 服务费 / 实得」三行明细）
+      description: |
+        口径：向**接单方**抽取，计费基数 = 结算单元金额。
+        优先级：活动 > 分类 > 阶梯 > 基准，再叠加信誉分修正，最后钳制到 [1%, 20%]。
+        ⚠️ 实得 **必须用减法**（`金额 − 佣金`），⛔ 不能两边各算一次（舍入会不配平，§5.12.3）。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount]
+              properties:
+                amount: { type: string, example: "1000.00" }
+                categoryId: { type: integer, format: int64 }
+                takerId:
+                  type: integer
+                  format: int64
+                  description: 指定则按该用户信誉等级计算；不传则按当前登录用户
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data: { $ref: '#/components/schemas/CommissionPreview' }
+
+  # ===================================================================
+  # AWARD · 抢单与竞拍
+  # ===================================================================
+  /tasks/{taskId}/grab:
+    post:
+      operationId: postTasksByTaskIdGrab
+      tags: [award]
+      summary: ⭐ 抢单（先到先得）
+      description: |
+        **并发正确性由数据库判定**：`UPDATE task SET status='PENDING_START', assignee_id=?
+        WHERE id=? AND status='RECRUITING' AND grant_mode='GRAB' AND assignee_id IS NULL`
+        + 判断影响行数。Redis 锁只用于削峰，**不作为正确性依据**。
+
+        前置闸门：实名已通过 · 信誉分 ≥ 门槛 · 进行中任务数 < 该等级上限 · 非发单方本人 · 未被拉黑。
+
+        失败必须返回**可操作的原因**：
+        - `31001` 正在被抢，请重试
+        - `31002` 已被他人抢走（前端应展示相似任务推荐）
+        - `70004` 信誉分不足 · `70005` 进行中任务数已达上限
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: 抢单成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data: { $ref: '#/components/schemas/GrabResult' }
+        '409':
+          description: 抢单失败（31001/31002/31003）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+
+  /tasks/{taskId}/bids:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    get:
+      operationId: getTasksByTaskIdBids
+      tags: [award]
+      summary: 报价列表
+      description: 暗标模式下**仅任务发布者可见全部报价**；其他用户只能看到报价数量与自己的报价。
+      parameters:
+        - { name: sort, in: query, schema: { type: string, enum: [AMOUNT_ASC, AMOUNT_DESC, CREDIT_DESC, LATEST] } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/BidSummary' }
+    post:
+      operationId: postTasksByTaskIdBids
+      tags: [award]
+      summary: 提交报价
+      description: 一人一份（`uk(task_id, bidder_id)`）；截止前可覆盖修改，历史入 `task_bid_history`。
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BidCreateRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /tasks/{taskId}/bids/{bidId}:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+      - name: bidId
+        in: path
+        required: true
+        schema: { type: integer, format: int64 }
+    patch:
+      operationId: patchTasksByTaskIdBidsByBidId
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      tags: [award]
+      summary: 修改报价（写入历史留痕）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BidCreateRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+    delete:
+      operationId: deleteTasksByTaskIdBidsByBidId
+      tags: [award]
+      summary: 撤回报价（撤回后不可再报）
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /tasks/{taskId}/bids/{bidId}/shortlist:
+    post:
+      operationId: postTasksByTaskIdBidsByBidIdShortlist
+      tags: [award]
+      summary: 加入 / 移出围（可多选）
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/TaskId'
+        - name: bidId
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                shortlisted: { type: boolean, default: true }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /tasks/{taskId}/award:
+    post:
+      operationId: postTasksByTaskIdAward
+      tags: [award]
+      summary: ⭐ 选定中标方（SINGLE / MULTI）
+      description: |
+        在**同一事务**内：锁定任务 → 校验状态 → 逐个置 `ACCEPTED` 并生成子订单 →
+        其余报价置 `REJECTED` → 校验 `Σ子订单金额 + 佣金 ≤ 托管额` → 推进状态 → 发事件。
+
+        **MULTI 硬约束**：① Σ金额+佣金 ≤ 托管额（⛔ 不能超发）；② `bids` 数量 ≤ `requiredCount`；
+        ③ 每个子订单独立履约/验收/结算/争端；④ `payMode=MILESTONE` 时 Phase 1 不允许 MULTI。
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AwardRequest' }
+      responses:
+        '200':
+          description: 中标成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data: { $ref: '#/components/schemas/AwardResult' }
+        '409':
+          description: 状态不允许 / 超托管额（31005/31006）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+
+  /award/bids/mine:
+    get:
+      operationId: getAwardBidsMine
+      tags: [award]
+      summary: 我的报价
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [QUOTED, SHORTLISTED, ACCEPTED, REJECTED, WITHDRAWN] }
+        - $ref: '#/components/parameters/PageNum'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        allOf:
+                          - $ref: '#/components/schemas/PageResult'
+                          - properties:
+                              list:
+                                type: array
+                                items: { $ref: '#/components/schemas/BidSummary' }
+
+  # ===================================================================
+  # ORDER · 履约 / 交付 / 验收
+  # ===================================================================
+  /orders:
+    get:
+      operationId: getOrders
+      tags: [order]
+      summary: 我的订单（发单方视角）
+      parameters:
+        - name: statusGroup
+          in: query
+          schema: { type: string, enum: [RECRUIT, PERFORM, CLOSE, TERMINAL] }
+        - $ref: '#/components/parameters/PageNum'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        allOf:
+                          - $ref: '#/components/schemas/PageResult'
+                          - properties:
+                              list:
+                                type: array
+                                items: { $ref: '#/components/schemas/OrderSummary' }
+
+  /orders/{orderId}:
+    get:
+      operationId: getOrdersByOrderId
+      tags: [order]
+      summary: 订单详情（主订单 + 全部子订单 + 结算单元）
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data: { $ref: '#/components/schemas/OrderDetail' }
+
+  /sub-orders:
+    get:
+      operationId: getSub-orders
+      tags: [order]
+      summary: 我的接单（接单方视角）
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/SubOrderStatus' }
+        - $ref: '#/components/parameters/PageNum'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        allOf:
+                          - $ref: '#/components/schemas/PageResult'
+                          - properties:
+                              list:
+                                type: array
+                                items: { $ref: '#/components/schemas/SubOrderSummary' }
+
+  /sub-orders/{subOrderId}:
+    get:
+      operationId: getSub-ordersBySubOrderId
+      tags: [order]
+      summary: 子订单详情
+      parameters:
+        - name: subOrderId
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data: { $ref: '#/components/schemas/SubOrderDetail' }
+
+  /sub-orders/{subOrderId}/start:
+    post:
+      operationId: postSub-ordersBySubOrderIdStart
+      tags: [order]
+      summary: 开始履约（PENDING_START → IN_PROGRESS）
+      parameters:
+        - $ref: '#/components/parameters/SubOrderId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /sub-orders/{subOrderId}/checkin:
+    post:
+      operationId: postSub-ordersBySubOrderIdCheckin
+      tags: [order]
+      summary: 线下到场签到（UC-U-97）
+      description: 定位 + 拍照；与任务地点距离超阈值标记异常。⛔ 不做后台持续轨迹采集（合规）。
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/SubOrderId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [lng, lat]
+              properties:
+                lng: { type: number, format: double }
+                lat: { type: number, format: double }
+                photoKey: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /sub-orders/{subOrderId}/deliveries:
+    post:
+      operationId: postSub-ordersBySubOrderIdDeliveries
+      tags: [order]
+      summary: 提交交付物（可多轮 / 可按里程碑分批）
+      parameters:
+        - $ref: '#/components/parameters/SubOrderId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DeliveryRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+        '409': { $ref: '#/components/responses/StateConflict' }
+
+  /sub-orders/{subOrderId}/accept:
+    post:
+      operationId: postSub-ordersBySubOrderIdAccept
+      tags: [order]
+      summary: 验收通过（触发分账 + 抽成 + 信誉分加分）
+      description: |
+        ⭐ 结算链路：逐 `delivery_unit` 计算佣金（**只算佣金，实得用减法**）→ 校验配平 →
+        写 `commission_detail`（含 **rule_snapshot 规则快照**）→ 双分录记账 → 分账指令。
+        ⚠️ 验收通过后进入**不可逆**阶段：`SETTLED` 之后 ⛔ 不可再发起常规争端（只能走举报）。
+      parameters:
+        - $ref: '#/components/parameters/SubOrderId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                unitId: { type: integer, format: int64, description: 里程碑/批次验收时指定 }
+                score: { type: integer, minimum: 1, maximum: 5, description: 同时提交评价 }
+                comment: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /sub-orders/{subOrderId}/reject:
+    post:
+      operationId: postSub-ordersBySubOrderIdReject
+      tags: [order]
+      summary: 驳回并说明原因
+      description: |
+        理由必填；计入修改轮次。超过 `modifyRoundLimit`（默认 3）自动转争端工单。
+        ⚠️ **恶意驳回会被裁决判定**：无正当理由驳回被判支持接单方的，发单方扣 15 分。
+      parameters:
+        - $ref: '#/components/parameters/SubOrderId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string, maxLength: 1000 }
+                failedItemIds:
+                  type: array
+                  description: 未通过的验收项 id（对应验收标准）
+                  items: { type: integer, format: int64 }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+        '32004': { $ref: '#/components/responses/Error' }
+
+  /sub-orders/{subOrderId}/cancel:
+    post:
+      operationId: postSub-ordersBySubOrderIdCancel
+      tags: [order]
+      summary: 申请取消（双方协商 / 逾期取消）
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/SubOrderId'
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /reviews:
+    post:
+      operationId: postReviews
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      tags: [order]
+      summary: 提交评价（双向；只有真实成交的互评才计入信誉分）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subOrderId, score]
+              properties:
+                subOrderId: { type: integer, format: int64 }
+                score: { type: integer, minimum: 1, maximum: 5 }
+                tags: { type: array, items: { type: string } }
+                content: { type: string, maxLength: 1000 }
+                anonymous: { type: boolean }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  # ===================================================================
+  # WALLET · 钱包 / 托管 / 提现
+  # ===================================================================
+  /wallet:
+    get:
+      operationId: getWallet
+      tags: [wallet]
+      summary: 钱包总览
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data: { $ref: '#/components/schemas/WalletSummary' }
+
+  /wallet/transactions:
+    get:
+      operationId: getWalletTransactions
+      tags: [wallet]
+      summary: 资金流水（双分录，每笔可追溯到订单）
+      parameters:
+        - name: bizType
+          in: query
+          schema: { type: string, enum: [ESCROW, RELEASE, REFUND, WITHDRAW, FEE, ADJUST, REVERSE] }
+        - $ref: '#/components/parameters/PageNum'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        allOf:
+                          - $ref: '#/components/schemas/PageResult'
+                          - properties:
+                              list:
+                                type: array
+                                items: { $ref: '#/components/schemas/WalletTxn' }
+
+  /escrows:
+    post:
+      operationId: postEscrows
+      tags: [wallet]
+      summary: ⭐ 创建托管（按端返回不同支付参数）
+      description: |
+        **多端支付差异集中在此接口**（唯一必须分端的业务逻辑）：
+        - `web-user` / `desktop` → `NATIVE` 扫码：返回 `codeUrl`
+        - `mp-weixin` → `JSAPI`：返回 `jsapiParams`（⛔ 微信小程序内**不允许支付宝**）
+        - `app-*` → SDK：返回 `sdkParams`
+
+        ⚠️ 金额由服务端按订单计算，⛔ **不接受客户端传入金额**。
+      parameters:
+        - $ref: '#/components/parameters/ClientHeader'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [orderId, channel]
+              properties:
+                orderId: { type: integer, format: int64 }
+                channel: { type: string, enum: [WECHAT, ALIPAY] }
+      responses:
+        '200':
+          description: 支付参数
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data: { $ref: '#/components/schemas/EscrowPayParams' }
+        '400':
+          description: 该端不支持所选支付方式（按 sys_client_capability 判定）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+
+  /wallet/withdrawals:
+    get:
+      operationId: getWalletWithdrawals
+      tags: [wallet]
+      summary: 我的提现记录
+      parameters:
+        - $ref: '#/components/parameters/PageNum'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        allOf:
+                          - $ref: '#/components/schemas/PageResult'
+                          - properties:
+                              list:
+                                type: array
+                                items: { $ref: '#/components/schemas/WithdrawApply' }
+    post:
+      operationId: postWalletWithdrawals
+      tags: [wallet]
+      summary: 申请提现
+      description: |
+        - 最低 100 元；单日限额默认 20000 元
+        - 收款人姓名必须与**实名一致**（否则 `40006`）
+        - 超过 5000 元转财务专员人工审核；超过 5 万需财务管理员复核
+        - ⭐ **提现周期按信誉等级**：优秀 T+0 / 良好 T+1 / 一般 T+3 / 较差 T+7
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WithdrawRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /wallet/bills/export:
+    post:
+      operationId: postWalletBillsExport
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      tags: [wallet]
+      summary: 账单导出（CSV/PDF）
+      description: ⛔ 导出会写 `sys_data_access_log`；单次超 `security.export_max_rows` 需审批。
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /pay/callback/{channel}:
+    post:
+      operationId: postPayCallbackByChannel
+      tags: [wallet]
+      summary: ⭐ 支付渠道异步回调（免登录、独立域名、渠道 IP 白名单）
+      description: |
+        处理顺序（**必须严格按此顺序**）：
+        1. **验签**（用渠道官方 SDK，⛔ 不自己实现）—— 失败即记录原始报文 + 告警
+        2. 幂等检查（`uk(channel + channel_order_no + event_type)`）
+        3. **同步**在单一事务内：更新 escrow 状态 + 写双分录 `wallet_txn` + 写回调记录
+        4. 返回渠道要求的成功响应（务必在渠道超时前）
+        5. **异步**发 MQ 事件（推进订单状态 / 通知双方 / 更新统计）
+
+        ⛔ 三条禁止：不得只入队不同步落库；不得重复记账；不得静默丢弃（订单已取消时按退款处理并告警）。
+      security: []
+      parameters:
+        - name: channel
+          in: path
+          required: true
+          schema: { type: string, enum: [wechat, alipay] }
+        - { name: Wechatpay-Signature, in: header, schema: { type: string } }
+        - { name: Wechatpay-Timestamp, in: header, schema: { type: string } }
+        - { name: Wechatpay-Nonce, in: header, schema: { type: string } }
+        - { name: Wechatpay-Serial, in: header, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: 渠道原始回调报文（原样保存用于争议取证）
+              additionalProperties: true
+      responses:
+        '200':
+          description: 处理成功（渠道停止重试）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChannelAck' }
+        '500':
+          description: 处理失败（**唯一安全的失败方式**：让渠道重试）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChannelAck' }
+
+  # ===================================================================
+  # DISPUTE · 争端与仲裁
+  # ===================================================================
+  /disputes:
+    post:
+      operationId: postDisputes
+      tags: [dispute]
+      summary: 发起争端
+      description: |
+        ⚠️ **只能在结算前发起**（`IN_PROGRESS` / `PENDING_ACCEPT` / `REVISION` / `OVERDUE` / `COMPLETED` 的短暂窗口）。
+        `SETTLED` 之后 ⛔ 不可走常规争端，只能举报 → 人工处理。
+        发起时**立即冻结该子订单/结算单元的托管份额**，禁止分账（§5.12.4）。
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DisputeCreateRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+        '409': { $ref: '#/components/responses/StateConflict' }
+
+  /disputes:
+    get:
+      operationId: getDisputes
+      tags: [dispute]
+      summary: 我的工单列表
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/DisputeStatus' }
+        - $ref: '#/components/parameters/PageNum'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        allOf:
+                          - $ref: '#/components/schemas/PageResult'
+                          - properties:
+                              list:
+                                type: array
+                                items: { $ref: '#/components/schemas/DisputeTicket' }
+
+  /disputes/{ticketId}:
+    get:
+      operationId: getDisputesByTicketId
+      tags: [dispute]
+      summary: 工单详情（含双方证据与时间轴）
+      parameters:
+        - $ref: '#/components/parameters/TicketId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data: { $ref: '#/components/schemas/DisputeDetail' }
+
+  /disputes/{ticketId}/evidences:
+    post:
+      operationId: postDisputesByTicketIdEvidences
+      tags: [dispute]
+      summary: 补充举证（≤2 轮）
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/TicketId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [eviType]
+              properties:
+                eviType: { type: string, enum: [TEXT, IMAGE, FILE, CHAT_LOG, CHECKIN, DELIVERY] }
+                content: { type: string, maxLength: 2000 }
+                fileKeys: { type: array, items: { type: string } }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+        '50002': { $ref: '#/components/responses/Error' }
+
+  /disputes/{ticketId}/appeals:
+    post:
+      operationId: postDisputesByTicketIdAppeals
+      tags: [dispute]
+      summary: 申诉（一次性；由**另一位**仲裁专员复核）
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/TicketId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string, maxLength: 2000 }
+                evidences: { type: array, items: { type: string } }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+        '50005': { $ref: '#/components/responses/Error' }
+
+  # ===================================================================
+  # IM · 即时通讯
+  # ===================================================================
+  /im/sessions:
+    get:
+      operationId: getImSessions
+      tags: [im]
+      summary: 会话列表
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/ImSession' }
+
+  /im/sessions/{sessionId}/messages:
+    get:
+      operationId: getImSessionsBySessionIdMessages
+      tags: [im]
+      summary: 拉取消息（⭐ 用 afterSeq 做离线补偿）
+      description: 重连后传本地最大 `seq`，服务端返回增量。⛔ 聊天记录不可删除（争端证据）。
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+        - { name: afterSeq, in: query, schema: { type: integer, format: int64, default: 0 } }
+        - { name: limit, in: query, schema: { type: integer, default: 50, maximum: 200 } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/ImMessage' }
+    post:
+      operationId: postImSessionsBySessionIdMessages
+      tags: [im]
+      summary: 发送消息
+      description: 命中敏感词（含变体与二维码 OCR）会打 `riskTag` 并提示"请勿脱离平台交易"，可能扣信誉分。
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [msgType]
+              properties:
+                msgType: { type: string, enum: [TEXT, IMAGE, FILE, ORDER_CARD] }
+                content: { type: string }
+                fileKey: { type: string }
+                extra: { type: object, additionalProperties: true }
+                clientMsgId: { type: string, description: 客户端幂等 id }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /im/sessions/{sessionId}/read:
+    post:
+      operationId: postImSessionsBySessionIdRead
+      tags: [im]
+      summary: 标记已读（跨端同步）
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                maxReadSeq: { type: integer, format: int64 }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  # ===================================================================
+  # NOTIFY · 通知
+  # ===================================================================
+  /notifications:
+    get:
+      operationId: getNotifications
+      tags: [notify]
+      summary: 通知列表
+      parameters:
+        - { name: unreadOnly, in: query, schema: { type: boolean } }
+        - $ref: '#/components/parameters/PageNum'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        allOf:
+                          - $ref: '#/components/schemas/PageResult'
+                          - properties:
+                              list:
+                                type: array
+                                items: { $ref: '#/components/schemas/Notification' }
+
+  /notifications/read:
+    post:
+      operationId: postNotificationsRead
+      tags: [notify]
+      summary: 批量标记已读
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ids: { type: array, items: { type: integer, format: int64 } }
+                all: { type: boolean }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /notifications/preferences:
+    get:
+      operationId: getNotificationsPreferences
+      tags: [notify]
+      summary: 通知偏好
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+    put:
+      operationId: putNotificationsPreferences
+      tags: [notify]
+      summary: 修改通知偏好
+      description: ⛔ 交易类关键通知（中标/交付/结算/裁决）不可关闭。
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  # ===================================================================
+  # COMMON · 公共
+  # ===================================================================
+  /categories:
+    get:
+      operationId: getCategories
+      tags: [common]
+      summary: 任务分类树（含分类级配置：允许的形态/计酬、费率、是否需资质）
+      security: []
+      parameters:
+        - { name: level, in: query, schema: { type: integer, enum: [1, 2] } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Category' }
+
+  /dict/{dictType}:
+    get:
+      operationId: getDictByDictType
+      tags: [common]
+      summary: ⭐ 字典接口（状态 / 等级 / 错误码说明）
+      description: |
+        **前端 ⛔ 不得硬编码状态字符串**，一律用此接口下发：
+        - `TASK_STATUS` 18 个任务状态（含分组、中文名、可用操作）
+        - `SUB_ORDER_STATUS` 子订单状态
+        - `CREDIT_LEVEL` 信誉等级（含颜色、徽章、权益摘要）
+        - `DISPUTE_STATUS` 工单状态
+      security: []
+      parameters:
+        - name: dictType
+          in: path
+          required: true
+          schema: { type: string, enum: [TASK_STATUS, SUB_ORDER_STATUS, CREDIT_LEVEL, DISPUTE_STATUS, TASK_FORM, PAY_MODE, GRANT_MODE, AWARD_MODE] }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/DictItem' }
+
+  /client/capabilities:
+    get:
+      operationId: getClientCapabilities
+      tags: [common]
+      summary: ⭐ 端能力矩阵（前端启动时拉取，决定 UI 形态）
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/ClientHeader'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/ClientCapability' }
+
+  /client/upload-policy:
+    get:
+      operationId: getClientUpload-policy
+      tags: [common]
+      summary: 上传策略（分片参数 / 大小上限 / 直传签名）
+      description: ⚠️ 小程序 `chunked=false` 且 `maxFileSizeMb=20`；大文件交付需引导至 App/桌面端。
+      parameters:
+        - $ref: '#/components/parameters/ClientHeader'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data: { $ref: '#/components/schemas/UploadPolicy' }
+
+  /files/upload-token:
+    post:
+      operationId: postFilesUpload-token
+      tags: [common]
+      summary: 申请直传签名（⭐ 服务端签名 + 客户端直传对象存储）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fileName, fileSize, scene]
+              properties:
+                fileName: { type: string }
+                fileSize: { type: integer, format: int64 }
+                contentType: { type: string }
+                sha256: { type: string, description: 用于秒传 }
+                scene:
+                  type: string
+                  enum: [TASK_ATTACHMENT, DELIVERY, DISPUTE_EVIDENCE, REAL_NAME, AVATAR, BID_PLAN]
+      responses:
+        '200':
+          description: 上传凭证（含分片参数或秒传命中标记）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data: { $ref: '#/components/schemas/UploadToken' }
+
+  /files/{fileKey}/download-url:
+    get:
+      operationId: getFilesByFileKeyDownload-url
+      tags: [common]
+      summary: 获取下载签名 URL（5 分钟有效、绑定用户）
+      parameters:
+        - name: fileKey
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  # ===================================================================
+  # OP · 操作员域
+  # ===================================================================
+  /op/tickets:
+    get:
+      operationId: getOpTickets
+      tags: [op]
+      summary: 我的工单队列（按岗位展示不同队列）
+      description: 需 `dispute:handle` 或 `ticket:intake` 权限点。
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/DisputeStatus' }
+        - { name: slaOverdue, in: query, schema: { type: boolean } }
+        - $ref: '#/components/parameters/PageNum'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        allOf:
+                          - $ref: '#/components/schemas/PageResult'
+                          - properties:
+                              list:
+                                type: array
+                                items: { $ref: '#/components/schemas/DisputeTicket' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /op/tickets/{ticketId}/assign:
+    post:
+      operationId: postOpTicketsByTicketIdAssign
+      tags: [op]
+      summary: 受理工单（客服分派 / 仲裁专员接单）
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/TicketId'
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /op/tickets/{ticketId}/verdict:
+    post:
+      operationId: postOpTicketsByTicketIdVerdict
+      tags: [op]
+      summary: ⭐ 下达裁决（权限点 `dispute:verdict`）
+      description: |
+        - 金额 ≤ `dispute.verdict_operator_limit`（默认 2000 元）→ 直接生效
+        - 超过 → 自动创建审批单，返回"待复核"（`60005`），**动作不执行**
+        - 部分退款时 **`commissionAmount` 必须按实结金额重算**（⛔ 不是按原订单金额）
+        - 幂等键：`ticketId + verdictVersion` —— 防重复裁决导致重复退款
+        - 资金动作由 `wallet` 按裁决结果自动执行，**仲裁专员 ⛔ 无任何资金划转权限**
+      parameters:
+        - $ref: '#/components/parameters/TicketId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VerdictRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+        '50003': { $ref: '#/components/responses/Error' }
+        '50004': { $ref: '#/components/responses/Error' }
+
+  /op/tickets/{ticketId}/appeal-review:
+    post:
+      operationId: postOpTicketsByTicketIdAppeal-review
+      tags: [op]
+      summary: 申诉复核（⛔ 不得为原裁决人，互斥岗位强制）
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/TicketId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision, remark]
+              properties:
+                decision: { type: string, enum: [UPHOLD, REVERSE] }
+                remark: { type: string, maxLength: 2000 }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+        '403':
+          description: 复核人 = 原裁决人（拒绝）
+
+  /op/task-audits:
+    get:
+      operationId: getOpTask-audits
+      tags: [op]
+      summary: 待审核任务队列（需 `task:audit`）
+      parameters:
+        - $ref: '#/components/parameters/PageNum'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /op/task-audits/{taskId}:
+    post:
+      operationId: postOpTask-auditsByTaskId
+      tags: [op]
+      summary: 审核通过 / 驳回 / 下架
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/TaskId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [PASS, REJECT, TAKEDOWN] }
+                reason: { type: string, maxLength: 500, description: 驳回/下架必填 }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /op/real-name-audits:
+    get:
+      operationId: getOpReal-name-audits
+      tags: [op]
+      summary: 待审核实名队列（需 `realname:audit`；⭐ 唯一可解密查看 L4 证件的岗位）
+      parameters:
+        - $ref: '#/components/parameters/PageNum'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /op/real-name-audits/{id}:
+    post:
+      operationId: postOpReal-name-auditsById
+      tags: [op]
+      summary: 实名审核（查看即写 sys_data_access_log + 水印）
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [PASS, REJECT] }
+                rejectReason: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /op/credit-appeals/{appealId}:
+    post:
+      operationId: postOpCredit-appealsByAppealId
+      tags: [op]
+      summary: 处理扣分申诉（需 `credit:appeal:handle`）
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: appealId
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [ACCEPTED, REJECTED] }
+                remark: { type: string, maxLength: 1000 }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /op/withdrawals:
+    get:
+      operationId: getOpWithdrawals
+      tags: [op]
+      summary: 待审提现队列（需 `withdraw:audit`，需 MFA 二次认证）
+      parameters:
+        - $ref: '#/components/parameters/PageNum'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /op/withdrawals/{withdrawId}/audit:
+    post:
+      operationId: postOpWithdrawalsByWithdrawIdAudit
+      tags: [op]
+      summary: 提现审核（5000–50000 财务专员；>50000 需财务管理员复核）
+      parameters:
+        - name: withdrawId
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision, mfaCode]
+              properties:
+                decision: { type: string, enum: [APPROVE, REJECT] }
+                rejectReason: { type: string }
+                mfaCode: { type: string, description: ⭐ 敏感操作二次认证，不能只靠"已登录" }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /op/recon-diffs:
+    get:
+      operationId: getOpRecon-diffs
+      tags: [op]
+      summary: 对账差异单（需 `recon:view` / `recon:handle`）
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [PENDING, HANDLING, RESOLVED, IGNORED] }
+        - $ref: '#/components/parameters/PageNum'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /op/recon-diffs/{diffId}:
+    post:
+      operationId: postOpRecon-diffsByDiffId
+      tags: [op]
+      summary: 处理差异（⭐ 只能"标记+说明"，⛔ 不能直接抹平；大额需复核）
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: diffId
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status, remark]
+              properties:
+                status: { type: string, enum: [RESOLVED, IGNORED] }
+                remark: { type: string, maxLength: 1000 }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  # ===================================================================
+  # ADMIN · 管理域
+  # ===================================================================
+  /admin/users:
+    get:
+      operationId: getAdminUsers
+      tags: [admin]
+      summary: 用户检索（需 `account:user:view`，手机号脱敏）
+      parameters:
+        - { name: keyword, in: query, schema: { type: string }, description: 支持 userNo / 手机号（盲索引精确匹配） }
+        - name: identity
+          in: query
+          schema: { type: string, enum: [USER, OPERATOR, ADMIN] }
+        - { name: creditLevel, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { type: string, enum: [NORMAL, FROZEN, CANCELLED] } }
+        - $ref: '#/components/parameters/PageNum'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /admin/users/{userId}/freeze:
+    post:
+      operationId: postAdminUsersByUserIdFreeze
+      tags: [admin]
+      summary: 冻结账号（需 `account:user:freeze` + MFA；写审计）
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/UserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason, mfaCode]
+              properties:
+                reason: { type: string, maxLength: 500 }
+                mfaCode: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /admin/users/{userId}/unfreeze:
+    post:
+      operationId: postAdminUsersByUserIdUnfreeze
+      tags: [admin]
+      summary: 解冻账号
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /admin/users/{userId}/reset-password:
+    post:
+      operationId: postAdminUsersByUserIdReset-password
+      tags: [admin]
+      summary: 重置密码（⭐ 客服无权执行；仅管理员 + MFA + 审计 + 短信通知本人）
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /admin/users/{userId}/kick:
+    post:
+      operationId: postAdminUsersByUserIdKick
+      tags: [admin]
+      summary: 强制下线（失效全部令牌）
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /admin/users/{userId}/credit-adjust:
+    post:
+      operationId: postAdminUsersByUserIdCredit-adjust
+      tags: [admin]
+      summary: 信誉分人工调整（需 `credit:adjust`；单次 ≤20 分，超 20 需超管复核）
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/UserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [delta, reason, mfaCode]
+              properties:
+                delta: { type: integer, minimum: -20, maximum: 20 }
+                reason: { type: string, maxLength: 500 }
+                mfaCode: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+        '70007': { $ref: '#/components/responses/Error' }
+
+  /admin/internal-accounts:
+    post:
+      operationId: postAdminInternal-accounts
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      tags: [admin]
+      summary: 创建内部账号（需 `account:internal:manage`）
+      description: ⛔ 内部账号**不得参与平台交易**（防自买自卖）。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [identity, name, roleCodes]
+              properties:
+                identity: { type: string, enum: [OPERATOR, ADMIN] }
+                name: { type: string }
+                phone: { type: string }
+                roleCodes:
+                  type: array
+                  description: ⭐ 会强制校验互斥岗位对（sys_role_conflict）
+                  items: { type: string }
+                mfaRequired: { type: boolean, default: true }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+        '60004':
+          description: 岗位互斥，不可同时分配
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+
+  /admin/roles:
+    get:
+      operationId: getAdminRoles
+      tags: [admin]
+      summary: 角色（岗位）列表（需 `rbac:role:manage`）
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+    post:
+      operationId: postAdminRoles
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      tags: [admin]
+      summary: 创建角色
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /admin/roles/{roleId}/permissions:
+    put:
+      operationId: putAdminRolesByRoleIdPermissions
+      tags: [admin]
+      summary: 配置角色权限点
+      description: ⚠️ 保存时会用「代码里所有 `@PreAuthorize` 权限点」比对，出现库里没有的权限点即拒绝（§5.13.2）。
+      parameters:
+        - name: roleId
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                permCodes: { type: array, items: { type: string } }
+                dataScope: { type: string, enum: [SELF, GROUP, ALL] }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /admin/role-conflicts:
+    get:
+      operationId: getAdminRole-conflicts
+      tags: [admin]
+      summary: 互斥岗位对列表（需 `rbac:conflict:manage`）
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+    post:
+      operationId: postAdminRole-conflicts
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      tags: [admin]
+      summary: 新增互斥岗位对
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /admin/configs:
+    get:
+      operationId: getAdminConfigs
+      tags: [admin]
+      summary: 系统参数（需 `config:manage`；按 groupCode 分组返回）
+      parameters:
+        - { name: groupCode, in: query, schema: { type: string } }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+    put:
+      operationId: putAdminConfigs
+      tags: [admin]
+      summary: 修改系统参数（费率类变更需双人审批 + 提前 7 天公示）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      configKey: { type: string }
+                      configValue: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /admin/commission-rules:
+    get:
+      operationId: getAdminCommission-rules
+      tags: [admin]
+      summary: 抽成费率规则（需 `commission:rule:manage`）
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+    post:
+      operationId: postAdminCommission-rules
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      tags: [admin]
+      summary: 新增费率规则
+      description: |
+        ⚠️ 保存校验：`rate ∈ [1%, 20%]`、阶梯区间不重叠、活动时间不交叉、优先级不冲突。
+        ⭐ 费率变更**不追溯**已发布任务（任务发布时已写 `commission_snapshot`）。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CommissionRule' }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+        '41003': { $ref: '#/components/responses/Error' }
+        '41004': { $ref: '#/components/responses/Error' }
+
+  /admin/credit-rules:
+    get:
+      operationId: getAdminCredit-rules
+      tags: [admin]
+      summary: 信誉分计分规则（需 `credit:rule:manage`）
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+    put:
+      operationId: putAdminCredit-rules
+      tags: [admin]
+      summary: 批量修改计分规则
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items: { $ref: '#/components/schemas/CreditRule' }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /admin/credit-levels:
+    get:
+      operationId: getAdminCredit-levels
+      tags: [admin]
+      summary: 信誉等级与权益矩阵（需 `credit:level:manage`）
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+    put:
+      operationId: putAdminCredit-levels
+      tags: [admin]
+      summary: 修改等级权益
+      description: ⚠️ 校验：AUTO 档分数区间必须**连续覆盖 0–100 且不重叠**（MANUAL 档如"平台认证"不参与校验）。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items: { $ref: '#/components/schemas/CreditLevel' }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /admin/categories:
+    get:
+      operationId: getAdminCategories
+      tags: [admin]
+      summary: 分类管理（需 `category:manage`）
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+    post:
+      operationId: postAdminCategories
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      tags: [admin]
+      summary: 新增/修改分类（含分类级费率、允许的形态与计酬、是否需资质）
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /admin/approvals:
+    get:
+      operationId: getAdminApprovals
+      tags: [admin]
+      summary: 复核审批台（待我投票的审批单）
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [PENDING, APPROVED, REJECTED, EXECUTED, EXPIRED] } }
+        - $ref: '#/components/parameters/PageNum'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /admin/approvals/{approvalId}/vote:
+    post:
+      operationId: postAdminApprovalsByApprovalIdVote
+      tags: [admin]
+      summary: ⭐ 复核投票（需 `approval:vote`）
+      description: |
+        ⛔ 两条硬规则（数据库层强制）：
+        1. **同一人不得投两票** —— `uk(task_id, approver_id)`
+        2. **发起人不得为自己的动作投票**
+        票数齐全后在同一事务内执行真实业务并置 `EXECUTED`（幂等）。
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: approvalId
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision, mfaCode]
+              properties:
+                decision: { type: string, enum: [APPROVE, REJECT] }
+                comment: { type: string, maxLength: 1000 }
+                mfaCode: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+        '60006': { $ref: '#/components/responses/Error' }
+
+  /admin/audit-logs:
+    get:
+      operationId: getAdminAudit-logs
+      tags: [admin]
+      summary: ⭐ 审计日志查询（需 `audit:log:view`；查审计本身也会被记录）
+      description: |
+        三类审计：**业务审计**（`sys_audit_log`，只增不改，5 年）·
+        **访问审计**（`sys_data_access_log`，L3/L4 读取）·
+        **安全审计**（登录、403、限流、验签失败，≥6 个月）。
+      parameters:
+        - { name: operatorId, in: query, schema: { type: integer, format: int64 } }
+        - { name: action, in: query, schema: { type: string } }
+        - { name: bizType, in: query, schema: { type: string } }
+        - { name: bizId, in: query, schema: { type: integer, format: int64 } }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+        - $ref: '#/components/parameters/PageNum'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /admin/risk-rules:
+    get:
+      operationId: getAdminRisk-rules
+      tags: [admin]
+      summary: 风控规则（需 `risk:rule:manage`）
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+    post:
+      operationId: postAdminRisk-rules
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      tags: [admin]
+      summary: 新增风控规则（⭐ 新规则默认 `mode=TAG`，先观察 3 天看误杀率再切 LIVE）
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /admin/blacklist:
+    get:
+      operationId: getAdminBlacklist
+      tags: [admin]
+      summary: 黑名单（需 `risk:blacklist:manage`）
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+    post:
+      operationId: postAdminBlacklist
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      tags: [admin]
+      summary: 加入黑名单（解封需超管审批 + 缴保证金）
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /admin/dashboard:
+    get:
+      operationId: getAdminDashboard
+      tags: [admin]
+      summary: 数据看板（GMV / 托管余额 / 争端率 / SLA 达成率 / **资金对账差异** / 各信誉等级分布）
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /admin/fund/invariant-check:
+    post:
+      operationId: postAdminFundInvariant-check
+      tags: [admin]
+      summary: ⭐ 手动触发资金不变量校验（5 项）
+      description: |
+        ① `Σ wallet_txn 借方 == Σ 贷方`
+        ② `Σ wallet_account.frozen == Σ escrow 未释放金额`
+        ③ `available >= 0`
+        ④ `Σ commission_detail.commission_amount(EFFECTIVE) == Σ 平台佣金科目流水`
+        ⑤ 每一条 `commission_detail` 满足 `佣金 + 实得 == 基数`
+        **任一不通过立即冻结全部提现**。
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  # ===================================================================
+  # 补充接口族（P2-⑱ 缺陷修复：原缺 10 个接口族）
+  # ===================================================================
+  /version:
+    get:
+      operationId: getVersion
+      tags: [common]
+      summary: 版本与最低支持版本（客户端启动时校验，低于则提示升级）
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        type: object
+                        properties:
+                          apiVersion: { type: string, example: "1.0.0" }
+                          minClientVersion: { type: string, example: "1.0.0" }
+                          serverTime:
+                            type: string
+                            format: date-time
+                            description: "⭐ 前端倒计时以此为准，不依赖客户端本地时间"
+                          maintenanceMode: { type: boolean }
+
+  /health:
+    get:
+      operationId: getHealth
+      tags: [common]
+      summary: 健康检查（K8s 探针；不鉴权）
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [UP, DOWN] }
+                  components:
+                    type: object
+                    properties:
+                      db: { type: string }
+                      redis: { type: string }
+                      mq: { type: string }
+
+  /account/favorites:
+    get:
+      operationId: getAccountFavorites
+      tags: [account]
+      summary: 我的收藏
+      parameters:
+        - $ref: '#/components/parameters/PageNum'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        allOf:
+                          - $ref: '#/components/schemas/PageResult'
+                          - properties:
+                              list:
+                                type: array
+                                items: { $ref: '#/components/schemas/TaskSummary' }
+
+  /tasks/{taskId}/favorite:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    post:
+      operationId: postTasksByTaskIdFavorite
+      tags: [task]
+      summary: 收藏任务
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+    delete:
+      operationId: deleteTasksByTaskIdFavorite
+      tags: [task]
+      summary: 取消收藏
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /account/cancel:
+    post:
+      operationId: postAccountCancel
+      tags: [account]
+      summary: 申请注销账号
+      description: |
+        前置校验（任一不满足即拒绝）：无进行中订单 · 无未结算资金 · 无未结工单 · 无在途提现。
+        通过后进入 **30 天冷静期** → 到期执行匿名化（保留交易记录以满足法务留存，删除个人身份信息）。
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason, mfaCode]
+              properties:
+                reason: { type: string, maxLength: 500 }
+                mfaCode: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+        '409':
+          description: 存在未结业务，无法注销
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+
+  /task-templates:
+    get:
+      operationId: getTask-templates
+      tags: [task]
+      summary: 我的任务模板
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+    post:
+      operationId: postTask-templates
+      tags: [task]
+      summary: 存为模板 / 新建模板
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, maxLength: 128 }
+                snapshot:
+                  type: object
+                  description: 任务字段快照（发单时回填）
+                  additionalProperties: true
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /task-templates/{templateId}:
+    parameters:
+      - name: templateId
+        in: path
+        required: true
+        schema: { type: integer, format: int64 }
+    put:
+      operationId: putTask-templatesByTemplateId
+      tags: [task]
+      summary: 修改模板
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+    delete:
+      operationId: deleteTask-templatesByTemplateId
+      tags: [task]
+      summary: 删除模板（逻辑删除）
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /reviews:
+    get:
+      operationId: getReviews
+      tags: [order]
+      summary: 评价列表（按用户 / 订单查询）
+      parameters:
+        - { name: toUserId, in: query, schema: { type: integer, format: int64 }, description: 查某用户收到的评价 }
+        - { name: subOrderId, in: query, schema: { type: integer, format: int64 } }
+        - { name: direction, in: query, schema: { type: string, enum: [PUBLISHER_TO_TAKER, TAKER_TO_PUBLISHER] } }
+        - { name: minScore, in: query, schema: { type: integer, minimum: 1, maximum: 5 } }
+        - $ref: '#/components/parameters/PageNum'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: OK（⛔ 匿名评价不返回 fromUser 信息）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data:
+                        allOf:
+                          - $ref: '#/components/schemas/PageResult'
+                          - properties:
+                              list:
+                                type: array
+                                items: { $ref: '#/components/schemas/Review' }
+
+  /reports:
+    post:
+      operationId: postReports
+      tags: [dispute]
+      summary: 举报用户 / 任务 / 消息
+      description: |
+        举报进入操作员队列；核实后可能扣信誉分（OFF_PLATFORM / FRAUD 类）。
+        ⭐ 已结算订单的欺诈举报也走这里 —— 因为常规争端流程**只能在结算前发起**（§4.11.3）。
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [targetType, targetId, reason]
+              properties:
+                targetType: { type: string, enum: [USER, TASK, MESSAGE, REVIEW] }
+                targetId: { type: integer, format: int64 }
+                reason: { type: string, maxLength: 1000 }
+                evidences: { type: array, items: { type: string } }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /invoices:
+    get:
+      operationId: getInvoices
+      tags: [wallet]
+      summary: 我的发票申请记录
+      parameters:
+        - $ref: '#/components/parameters/PageNum'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+    post:
+      operationId: postInvoices
+      tags: [wallet]
+      summary: 申请发票（平台佣金服务费发票）
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [invoiceType, titleInfo]
+              properties:
+                invoiceType: { type: string, enum: [PERSONAL, COMPANY] }
+                titleInfo:
+                  type: object
+                  properties:
+                    title: { type: string }
+                    taxNo: { type: string, description: 企业抬头必填 }
+                    bankName: { type: string }
+                    bankAccount: { type: string }
+                    address: { type: string }
+                    phone: { type: string }
+                amount: { type: string }
+                email: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /subscriptions:
+    get:
+      operationId: getSubscriptions
+      tags: [account]
+      summary: 我的任务订阅（按分类 / 关键词推送新任务）
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+    put:
+      operationId: putSubscriptions
+      tags: [account]
+      summary: 设置订阅
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                categoryIds: { type: array, items: { type: integer, format: int64 } }
+                keywords: { type: array, items: { type: string } }
+                taskForms: { type: array, items: { $ref: '#/components/schemas/TaskForm' } }
+                amountMin: { type: string, nullable: true }
+                amountMax: { type: string, nullable: true }
+                maxDistanceKm: { type: integer, nullable: true }
+                channels:
+                  type: array
+                  description: 推送渠道（小程序订阅消息需用户已授权）
+                  items: { type: string, enum: [INNER, SMS, WECHAT_MP, PUSH] }
+                enabled: { type: boolean }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+  /exports:
+    post:
+      operationId: postExports
+      tags: [common]
+      summary: ⭐ 发起异步导出（大导出不再同步返回）
+      description: |
+        原设计只有同步导出 —— 导出 10 万行会 HTTP 超时且长时间占用连接。
+        改为**异步任务**：立即返回 exportId → 后台生成 → 完成后通知 → 凭 downloadUrl 下载。
+        ⛔ 导出必写 sys_data_access_log；超过 security.export_max_rows 需审批。
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [exportType, reason]
+              properties:
+                exportType:
+                  type: string
+                  enum: [WALLET_TXN, ORDER_LIST, TASK_LIST, DISPUTE_LIST, AUDIT_LOG, RECON_DIFF, USER_LIST]
+                format: { type: string, enum: [CSV, XLSX], default: CSV }
+                queryParams:
+                  type: object
+                  description: 与对应列表接口相同的筛选条件
+                  additionalProperties: true
+                reason: { type: string, description: ⭐ 导出用途（审计要求，必填） }
+      responses:
+        '200':
+          description: 已受理
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data: { $ref: '#/components/schemas/ExportTask' }
+
+  /exports/{exportId}:
+    get:
+      operationId: getExportsByExportId
+      tags: [common]
+      summary: 查询导出任务进度 / 取下载地址
+      parameters:
+        - name: exportId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - properties:
+                      data: { $ref: '#/components/schemas/ExportTask' }
+
+  /op/recon-bills:
+    get:
+      operationId: getOpRecon-bills
+      tags: [op]
+      summary: 对账账单汇总（需 recon:view）
+      description: "⭐ 佣金（COMMISSION）作为独立科目参与对账 —— 原 billType 枚举缺此项（P1-B5）"
+      parameters:
+        - { name: billDate, in: query, schema: { type: string, format: date } }
+        - { name: channel, in: query, schema: { type: string, enum: [WECHAT, ALIPAY] } }
+        - name: billType
+          in: query
+          schema: { type: string, enum: [PAY, REFUND, PROFIT_SHARE, WITHDRAW, COMMISSION] }
+        - $ref: '#/components/parameters/PageNum'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+
+# =====================================================================
+#  COMPONENTS
+# =====================================================================
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Access Token（15 分钟）。Refresh Token 走 /auth/refresh，一次性使用。
+
+  parameters:
+    ClientHeader:
+      name: X-Client
+      in: header
+      required: false
+      schema:
+        type: string
+        enum: [web-user, web-admin, mp-weixin, app-android, app-ios, desktop]
+        default: web-user
+      description: 端标识 —— 用于字段裁剪、上传策略、**支付参数装配**、埋点归因
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, maxLength: 64 }
+      description: ⭐ 幂等键。金额/抢单/中标/裁决类接口**强制**；重复提交返回首次结果。
+    TaskId:
+      name: taskId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    SubOrderId:
+      name: subOrderId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    TicketId:
+      name: ticketId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    PageNum:
+      name: pageNum
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    PageSize:
+      name: pageSize
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    Cursor:
+      name: cursor
+      in: query
+      schema: { type: string }
+      description: 游标分页（移动端信息流必须用这个；offset 分页在下拉刷新时会重复/漏项）
+
+  responses:
+    Ok:
+      description: 成功
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiResponse' }
+    BadRequest:
+      description: 参数校验失败（10001）
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiResponse' }
+    Unauthorized:
+      description: 未登录 / 令牌过期（20001/20002）
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiResponse' }
+    Forbidden:
+      description: 无权限（20003）—— 垂直或水平越权
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiResponse' }
+    NotFound:
+      description: 不存在（30001 等）
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiResponse' }
+    StateConflict:
+      description: 状态冲突（30002/32001 等）
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiResponse' }
+    TooManyRequests:
+      description: 限流（10002）
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiResponse' }
+    Error:
+      description: 业务错误（具体 code 见响应体）
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiResponse' }
+
+  schemas:
+
+    # ---------- 通用 ----------
+    ApiResponse:
+      type: object
+      required: [code, message, traceId, timestamp]
+      properties:
+        code:
+          type: integer
+          description: 业务码，0 = 成功。分段见 ErrorCode
+          example: 0
+        message:
+          type: string
+          description: 用户可读文案（不含堆栈与技术细节）
+          example: OK
+        data:
+          nullable: true
+        traceId:
+          type: string
+          description: ⭐ 链路追踪 id —— 用户报障时直接提供
+          example: a1b2c3d4e5f6
+        timestamp:
+          type: string
+          format: date-time
+          description: 服务端时间（前端倒计时一律以此校准）
+
+    PageResult:
+      type: object
+      properties:
+        list:
+          type: array
+          items: {}
+        total: { type: integer, format: int64 }
+        pageNum: { type: integer }
+        pageSize: { type: integer }
+        cursor:
+          type: string
+          nullable: true
+          description: 下一页游标；为空表示没有更多
+
+    ErrorCode:
+      type: integer
+      description: |
+        业务错误码分段：
+        - `0` 成功
+        - `10xxx` 通用/参数（10001 参数校验失败、10002 请求过于频繁、10998 版本过低需升级、10999 系统繁忙）
+        - `20xxx` 认证授权（20001 未登录、20002 令牌过期、20003 无权限、20004 账号被冻结、20005 未实名、20006 账号锁定）
+        - `30xxx` 任务（30001 任务不存在、30002 状态不允许该操作、30003 非任务所有者、30004 审核未通过）
+        - `31xxx` 抢单/竞价（31001 正在被抢请重试、31002 **已被他人抢走**、31003 竞拍已截止、31004 报价超范围、31005 中标金额超托管额、31006 SINGLE 只能选一人）
+        - `32xxx` 订单/交付（32001 子订单状态不允许、32002 已超交付期、32003 驳回理由必填、32004 修改轮次已用尽）
+        - `40xxx` 资金（40001 余额不足、40002 托管创建失败、40003 **重复请求（幂等命中）**、40004 分账失败、40005 提现审核中、40006 实名与银行卡不一致）
+        - `41xxx` 抽成（41001 费率规则未命中、41002 **佣金与实得不配平**、41003 费率越界 1%–20%、41004 阶梯区间重叠、41005 活动时间交叉、41006 抽成明细已存在、41007 已分账不可重算）
+        - `50xxx` 争端（50001 工单不存在、50002 举证期已结束、50003 **裁决金额超操作员上限**、50004 已裁决不可重复裁决、50005 申诉机会已用）
+        - `60xxx` 平台治理（60001 无管理权限、60002 内部账号不可操作、60003 参数配置非法、60004 **岗位互斥**、60005 审批未完成动作被拦截、60006 发起人不得自批）
+        - `70xxx` 信誉分（70001 分值越界、70002 该事件已计分、70003 今日加分已达上限、70004 **信誉分不足无法接单**、70005 进行中任务数已达上限、70006 扣分申诉已过期或用过、70007 人工调整超单次上限）
+        - `90xxx` 外部渠道（90001 渠道超时、90002 渠道验签失败、90003 渠道返回异常）
+
+        > **原则**：能被用户看懂并据此采取行动的，才配拥有独立错误码。抢单失败必须区分"被抢走"（去看别的任务）与"你不符合条件"（去完善资质）。
+
+    # ---------- 枚举 ----------
+    TaskForm:
+      type: string
+      description: 任务形态（维度二）—— **会改变表单与校验规则**，发布后不可修改
+      enum: [ONLINE, OFFLINE, HYBRID]
+    PayMode:
+      type: string
+      description: 计酬方式（维度三）
+      enum: [FIXED, BID, BY_QUANTITY, BY_DAY, MILESTONE]
+    GrantMode:
+      type: string
+      description: 接单方式。与 payMode 有强互斥：FIXED→GRAB，BID→BID
+      enum: [GRAB, BID]
+    AwardMode:
+      type: string
+      description: 中标语义。MULTI 在 Phase 1 与 payMode=MILESTONE 互斥
+      enum: [SINGLE, MULTI]
+    TaskStatus:
+      type: string
+      description: |
+        任务 18 状态（5 个分组）：
+        - 草稿域 `DRAFT` `PENDING_AUDIT` `AUDIT_REJECTED`
+        - 招募域 `PENDING_ESCROW` `RECRUITING` `BIDDING` `PENDING_SELECT`
+        - 履约域 `PENDING_START` `IN_PROGRESS` `PENDING_ACCEPT` `REVISION` `OVERDUE` `DISPUTED`
+        - 收尾域 `COMPLETED` `SETTLED`
+        - 终态 `CLOSED` `CANCELLED` `EXPIRED`
+      enum: [DRAFT, PENDING_AUDIT, AUDIT_REJECTED, PENDING_ESCROW, RECRUITING, BIDDING, PENDING_SELECT, PENDING_START, IN_PROGRESS, PENDING_ACCEPT, REVISION, OVERDUE, DISPUTED, COMPLETED, SETTLED, CLOSED, CANCELLED, EXPIRED]
+    SubOrderStatus:
+      type: string
+      enum: [PENDING_ESCROW, IN_PROGRESS, SUBMITTED, ACCEPTED, REVISION, OVERDUE, DISPUTED, SETTLED, REFUNDED, PARTIAL_SETTLED, CANCELLED]
+    DisputeStatus:
+      type: string
+      enum: [OPEN, ASSIGNED, EVIDENCE, REVIEWING, PENDING_ADMIN, VERDICT, APPEALED, CLOSED]
+    CreditLevelCode:
+      type: string
+      enum: [BLACKLIST, POOR, NORMAL, GOOD, EXCELLENT, CERTIFIED]
+
+    # ---------- 认证 ----------
+    LoginResult:
+      type: object
+      properties:
+        accessToken: { type: string }
+        refreshToken: { type: string }
+        expiresIn: { type: integer, description: 秒 }
+        identity: { type: string, enum: [USER, OPERATOR, ADMIN] }
+        userId: { type: integer, format: int64 }
+        userNo: { type: string }
+        nickname: { type: string }
+        realNameStatus: { type: string, enum: [NONE, PENDING, PASSED, REJECTED] }
+        creditScore: { type: integer }
+        creditLevel: { $ref: '#/components/schemas/CreditLevelCode' }
+        permissionVersion: { type: integer }
+
+    MenuNode:
+      type: object
+      properties:
+        path: { type: string }
+        name: { type: string }
+        component: { type: string }
+        title: { type: string }
+        icon: { type: string }
+        permCode: { type: string }
+        children: { type: array, items: { $ref: '#/components/schemas/MenuNode' } }
+
+    # ---------- 账户 ----------
+    UserProfile:
+      type: object
+      properties:
+        userId: { type: integer, format: int64 }
+        userNo: { type: string }
+        nickname: { type: string }
+        avatarUrl: { type: string }
+        intro: { type: string }
+        serviceRegion: { type: string }
+        phoneMasked: { type: string, example: "138****5678" }
+        realNameStatus: { type: string, enum: [NONE, PENDING, PASSED, REJECTED] }
+        creditScore: { type: integer }
+        creditLevel: { $ref: '#/components/schemas/CreditLevelCode' }
+        status: { type: string, enum: [NORMAL, FROZEN, CANCELLED] }
+        createdAt: { type: string, format: date-time }
+
+    RealNameInfo:
+      type: object
+      properties:
+        status: { type: string, enum: [NONE, PENDING, PASSED, REJECTED] }
+        realType: { type: string, enum: [PERSONAL, ENTERPRISE] }
+        realNameMasked: { type: string, example: "张**" }
+        idCardMasked: { type: string, example: "410***********1234" }
+        rejectReason: { type: string }
+        auditAt: { type: string, format: date-time }
+
+    CreditInfo:
+      type: object
+      properties:
+        score: { type: integer, minimum: 0, maximum: 100, example: 78 }
+        levelCode: { $ref: '#/components/schemas/CreditLevelCode' }
+        levelName: { type: string, example: "良好" }
+        badge: { type: string, example: "🔵" }
+        nextLevelCode: { type: string, nullable: true }
+        scoreToNextLevel:
+          type: integer
+          nullable: true
+          description: 距下一等级还差多少分
+        upgradeHint:
+          type: string
+          description: ⭐ 提升指引，如"再做 2 单好评可升到优秀，费率 −1.0%、提现 T+0"
+          example: "再做 2 单好评可升到优秀，抽成费率再降 0.5%，提现周期 T+1 → T+0"
+        downgradeWarning:
+          type: string
+          nullable: true
+          description: ⭐ 扣分预警，如"再扣 3 分将降级，会失去：抽成 −0.5%、提现 T+1"
+
+    UserPrivileges:
+      type: object
+      description: ⭐ 权益**唯一出口** —— 前端展示与后端执行必须是同一份数据
+      properties:
+        levelCode: { $ref: '#/components/schemas/CreditLevelCode' }
+        score: { type: integer }
+        maxOngoingTasks: { type: integer, description: 进行中任务上限 }
+        grabThreshold: { type: integer, description: 抢单门槛分 }
+        sortWeight: { type: number, description: 排序权重 }
+        commissionDelta:
+          type: number
+          description: ⭐ 抽成费率修正（百分点），如 -0.01 表示 −1.0%
+          example: -0.005
+        withdrawDays: { type: integer, description: '⭐ 提现周期 T+N，0 表示 T+0' }
+        requireDeposit: { type: boolean }
+        supportPriority: { type: integer, description: 平台介入优先级（越小越优先） }
+        minTaskAmount: { type: string, nullable: true }
+        maxTaskAmount: { type: string, nullable: true }
+        publishWeight: { type: number, description: 发单方侧：任务曝光权重 }
+        forceEscrow: { type: boolean, description: 发单方侧：是否强制"发布即托管" }
+        maxPublishAmount: { type: string, nullable: true }
+
+    CreditLog:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        eventType: { type: string, example: FINISH_5STAR }
+        eventName: { type: string, example: "完成订单并获5星好评" }
+        delta: { type: integer, example: 3 }
+        rawDelta: { type: integer, description: 规则原始分值（与实际不同说明被钳制或日上限截断） }
+        scoreBefore: { type: integer }
+        scoreAfter: { type: integer }
+        levelBefore: { $ref: '#/components/schemas/CreditLevelCode' }
+        levelAfter: { $ref: '#/components/schemas/CreditLevelCode' }
+        bizType: { type: string, nullable: true }
+        bizId: { type: integer, format: int64, nullable: true }
+        reason: { type: string }
+        operatorType: { type: string, enum: [SYSTEM, OPERATOR, ADMIN] }
+        appealable: { type: boolean, description: 是否仍在 7 天申诉期内 }
+        createdAt: { type: string, format: date-time }
+
+    CreditRule:
+      type: object
+      properties:
+        eventType: { type: string }
+        eventName: { type: string }
+        roleSide: { type: string, enum: [PUBLISHER, TAKER, BOTH] }
+        delta: { type: integer }
+        dailyCap: { type: integer, description: 单日加分上限，0=不限 }
+        decayable: { type: boolean, description: '⭐ 惩罚性扣分必须为 false（永不随时间衰减）' }
+        enabled: { type: boolean }
+
+    CreditLevel:
+      type: object
+      properties:
+        levelCode: { $ref: '#/components/schemas/CreditLevelCode' }
+        levelName: { type: string }
+        minScore: { type: integer }
+        maxScore: { type: integer }
+        badge: { type: string }
+        awardMode:
+          type: string
+          enum: [AUTO, MANUAL]
+          description: |
+            ⭐ AUTO 按分数自动判定；MANUAL 人工授予。
+            "平台认证"是 MANUAL —— 它**不是一个分数档**，否则会与「优秀」重叠导致无法判定。
+        maxOngoingTasks: { type: integer }
+        grabThreshold: { type: integer }
+        minTaskAmount: { type: string, nullable: true }
+        maxTaskAmount: { type: string, nullable: true }
+        sortWeight: { type: number }
+        commissionDelta: { type: number }
+        withdrawDays: { type: integer }
+        requireDeposit: { type: boolean }
+        supportPriority: { type: integer }
+        publishWeight: { type: number }
+        forceEscrow: { type: boolean }
+        maxPublishAmount: { type: string, nullable: true }
+
+    # ---------- 任务 ----------
+    TaskSummary:
+      type: object
+      description: 任务列表项（大厅 / 我的发布共用）
+      properties:
+        taskId: { type: integer, format: int64 }
+        taskNo: { type: string }
+        title: { type: string }
+        categoryId: { type: integer, format: int64 }
+        categoryName: { type: string }
+        taskForm: { $ref: '#/components/schemas/TaskForm' }
+        payMode: { $ref: '#/components/schemas/PayMode' }
+        grantMode: { $ref: '#/components/schemas/GrantMode' }
+        awardMode: { $ref: '#/components/schemas/AwardMode' }
+        status: { $ref: '#/components/schemas/TaskStatus' }
+        statusName: { type: string, example: "招募中" }
+        statusGroup: { type: string, enum: [DRAFT, RECRUIT, PERFORM, CLOSE, TERMINAL] }
+        price: { type: string, nullable: true, description: 一口价 }
+        budgetMin: { type: string, nullable: true }
+        budgetMax: { type: string, nullable: true }
+        unitPrice: { type: string, nullable: true }
+        quantity: { type: integer, nullable: true }
+        unit: { type: string, nullable: true }
+        dayRate: { type: string, nullable: true }
+        days: { type: integer, nullable: true }
+        city: { type: string, nullable: true, description: 线下任务城市 }
+        distanceKm:
+          type: number
+          nullable: true
+          description: ⭐ 真 km 距离（由经纬度 haversine 计算，非行政区估算）
+        deadline: { type: string, format: date-time }
+        bidDeadline: { type: string, format: date-time, nullable: true }
+        bidCount: { type: integer, description: 已有报价数 }
+        viewCount: { type: integer }
+        escrowStatus: { type: string, enum: [NONE, PENDING, FROZEN, PARTIAL_RELEASED, RELEASED, REFUNDED] }
+        escrowAmount: { type: string }
+        publisherId: { type: integer, format: int64 }
+        publisherNickname: { type: string }
+        publisherCreditLevel: { $ref: '#/components/schemas/CreditLevelCode' }
+        minCreditLevel: { $ref: '#/components/schemas/CreditLevelCode' }
+        tags: { type: array, items: { type: string } }
+        publishedAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+
+    AcceptanceItem:
+      type: object
+      description: ⭐ 结构化验收标准 —— 没有它，恶意驳回就无法裁决
+      required: [seq, itemName]
+      properties:
+        id: { type: integer, format: int64 }
+        seq: { type: integer }
+        itemName: { type: string, maxLength: 128, example: "首页、详情页、订单页三个页面完整可用" }
+        itemDesc: { type: string }
+        required: { type: boolean, description: 是否必过项 }
+        weight: { type: integer }
+
+    TaskLocation:
+      type: object
+      description: 线下任务地点（taskForm=OFFLINE/HYBRID 时必填）
+      required: [province, city, district, address, lng, lat]
+      properties:
+        province: { type: string }
+        city: { type: string }
+        district: { type: string }
+        address: { type: string }
+        lng: { type: number, format: double }
+        lat: { type: number, format: double }
+        serviceRadiusKm: { type: integer, description: 0 = 不限 }
+        needCheckin: { type: boolean }
+
+    MilestoneInput:
+      type: object
+      required: [seq, name, amount]
+      properties:
+        seq: { type: integer }
+        name: { type: string }
+        amount: { type: string, description: 'Σ 须等于总预算' }
+        prepayRatio: { type: number, description: 预付比例，默认 0 }
+        deliverableDesc: { type: string }
+        deadline: { type: string, format: date-time, nullable: true }
+
+    TaskCreateRequest:
+      type: object
+      required: [categoryId, title, description, taskForm, payMode, grantMode, deadline, acceptanceItems]
+      properties:
+        categoryId: { type: integer, format: int64 }
+        title: { type: string, maxLength: 128 }
+        description: { type: string, description: 富文本；服务端白名单过滤后存储 }
+        tags: { type: array, items: { type: string } }
+        skills: { type: array, items: { type: string } }
+
+        taskForm: { $ref: '#/components/schemas/TaskForm' }
+        payMode: { $ref: '#/components/schemas/PayMode' }
+        grantMode: { $ref: '#/components/schemas/GrantMode' }
+        awardMode: { $ref: '#/components/schemas/AwardMode' }
+        requiredCount: { type: integer, description: MULTI 需要人数 }
+
+        price: { type: string, nullable: true }
+        budgetMin: { type: string, nullable: true }
+        budgetMax: { type: string, nullable: true }
+        unitPrice: { type: string, nullable: true }
+        quantity: { type: integer, nullable: true }
+        unit: { type: string, nullable: true }
+        dayRate: { type: string, nullable: true }
+        days: { type: integer, nullable: true }
+        milestones:
+          type: array
+          items: { $ref: '#/components/schemas/MilestoneInput' }
+        expenseReimburse: { type: boolean }
+        expenseCap: { type: string, nullable: true }
+
+        deliverableDesc: { type: string }
+        deliverableForm: { type: string, enum: [FILE, ONLINE, ONSITE, PHYSICAL] }
+        acceptanceItems:
+          type: array
+          minItems: 1
+          description: ⭐ 至少 1 项（G1）
+          items: { $ref: '#/components/schemas/AcceptanceItem' }
+        allowPartialDelivery: { type: boolean }
+        acceptDays: { type: integer, description: 验收期天数，默认取 sys_config }
+        modifyRoundLimit: { type: integer, default: 3 }
+
+        location: { $ref: '#/components/schemas/TaskLocation' }
+        serviceTimeSlots:
+          type: array
+          nullable: true
+          description: 线下服务时间段，如 ["周六 09:00-12:00"]
+          items: { type: string }
+
+        startAt: { type: string, format: date-time, nullable: true }
+        deadline: { type: string, format: date-time }
+        bidDeadline: { type: string, format: date-time, nullable: true, description: 'BID 模式必填，且须早于 deadline' }
+
+        visibility: { type: string, enum: [PUBLIC, CERTIFIED_ONLY, INVITE_ONLY] }
+        minCreditLevel: { $ref: '#/components/schemas/CreditLevelCode' }
+        invitedUserIds: { type: array, items: { type: integer, format: int64 } }
+
+        ipOwnership:
+          type: string
+          enum: [PLATFORM, PUBLISHER, TAKER, SHARED]
+          description: ⭐ 知识产权归属；设计/开发类必填，默认 PUBLISHER（⛔ 不得默认归平台）
+        confidentialityRequired: { type: boolean }
+        subcontractAllowed: { type: boolean, default: false }
+        extraTerms: { type: string }
+
+        escrowOnPublish: { type: boolean, description: 'true=发布即托管；false=中标后托管（默认）' }
+        attachments: { type: array, items: { type: string } }
+
+    TaskDetail:
+      allOf:
+        - $ref: '#/components/schemas/TaskSummary'
+        - type: object
+          properties:
+            description: { type: string }
+            deliverableDesc: { type: string }
+            deliverableForm: { type: string }
+            acceptanceItems:
+              type: array
+              items: { $ref: '#/components/schemas/AcceptanceItem' }
+            allowPartialDelivery: { type: boolean }
+            acceptDays: { type: integer }
+            autoAcceptAt: { type: string, format: date-time, nullable: true }
+            modifyRoundLimit: { type: integer }
+            location: { $ref: '#/components/schemas/TaskLocation' }
+            serviceTimeSlots: { type: array, items: { type: string } }
+            startAt: { type: string, format: date-time, nullable: true }
+            visibility: { type: string }
+            ipOwnership: { type: string }
+            confidentialityRequired: { type: boolean }
+            subcontractAllowed: { type: boolean }
+            extraTerms: { type: string }
+            milestones:
+              type: array
+              items: { $ref: '#/components/schemas/MilestoneInput' }
+            attachments:
+              type: array
+              items:
+                type: object
+                properties:
+                  fileName: { type: string }
+                  fileKey: { type: string }
+                  fileSize: { type: integer, format: int64 }
+            myBid:
+              allOf: [{ $ref: '#/components/schemas/BidSummary' }]
+              nullable: true
+              description: 我是否已报价
+            allowedActions:
+              type: array
+              description: ⭐ 由「状态 × 操作矩阵」下发，前端只渲染，⛔ 不硬编码状态字符串
+              items: { type: string, example: GRAB }
+            commissionPreview:
+              allOf: [{ $ref: '#/components/schemas/CommissionPreview' }]
+              nullable: true
+
+    TaskStatusLog:
+      type: object
+      properties:
+        fromStatus: { $ref: '#/components/schemas/TaskStatus' }
+        toStatus: { $ref: '#/components/schemas/TaskStatus' }
+        event: { type: string }
+        operatorId: { type: integer, format: int64 }
+        operatorType: { type: string, enum: [SYSTEM, USER, OPERATOR, ADMIN] }
+        reason: { type: string }
+        createdAt: { type: string, format: date-time }
+
+    # ---------- 抢单与竞拍 ----------
+    GrabResult:
+      type: object
+      properties:
+        success: { type: boolean }
+        subOrderId: { type: integer, format: int64, nullable: true }
+        subOrderNo: { type: string, nullable: true }
+        deadline: { type: string, format: date-time, nullable: true }
+        failCode: { type: integer, nullable: true, description: 31001/31002/31003/70004/70005 }
+        failReason: { type: string, nullable: true }
+        similarTasks:
+          type: array
+          description: ⭐ 抢单失败时返回相似任务，把"失败"转成"下一步"
+          items: { $ref: '#/components/schemas/TaskSummary' }
+
+    BidSummary:
+      type: object
+      properties:
+        bidId: { type: integer, format: int64 }
+        taskId: { type: integer, format: int64 }
+        taskTitle: { type: string }
+        bidderId: { type: integer, format: int64 }
+        bidderNickname: { type: string }
+        bidderCreditLevel: { $ref: '#/components/schemas/CreditLevelCode' }
+        bidderCreditScore: { type: integer }
+        quoteAmount: { type: string }
+        durationDays: { type: integer }
+        planDesc: { type: string }
+        attachments: { type: array, items: { type: string } }
+        status: { type: string, enum: [QUOTED, SHORTLISTED, ACCEPTED, REJECTED, WITHDRAWN] }
+        abnormalFlag:
+          type: string
+          nullable: true
+          description: 'LOW_PRICE = 报价低于预算下限 50%，前端应提示"注意低价中标后加价风险"'
+        version: { type: integer, description: 修改次数 }
+        createdAt: { type: string, format: date-time }
+
+    BidCreateRequest:
+      type: object
+      required: [quoteAmount, durationDays]
+      properties:
+        quoteAmount: { type: string, example: "4200.00" }
+        durationDays: { type: integer, minimum: 1 }
+        planDesc: { type: string, maxLength: 5000 }
+        attachments: { type: array, items: { type: string } }
+
+    AwardRequest:
+      type: object
+      required: [bidIds]
+      properties:
+        bidIds:
+          type: array
+          minItems: 1
+          description: SINGLE 时长度必须为 1；MULTI 时 ≤ requiredCount
+          items: { type: integer, format: int64 }
+        amounts:
+          type: object
+          description: 'MULTI 下逐个指定金额：{"bidId": "3000.00"}；SINGLE 可省略（取报价金额）'
+          additionalProperties: { type: string }
+
+    AwardResult:
+      type: object
+      properties:
+        orderId: { type: integer, format: int64 }
+        orderNo: { type: string }
+        subOrders:
+          type: array
+          items: { $ref: '#/components/schemas/SubOrderSummary' }
+        totalAmount: { type: string, description: Σ 子订单金额 }
+        platformFee: { type: string, description: Σ 预估佣金 }
+        escrowAmount: { type: string }
+        nextAction:
+          type: string
+          enum: [PAY_ESCROW, START_WORK]
+          description: 未托管则需先支付托管
+
+    # ---------- 订单履约 ----------
+    OrderSummary:
+      type: object
+      properties:
+        orderId: { type: integer, format: int64 }
+        orderNo: { type: string }
+        taskId: { type: integer, format: int64 }
+        taskTitle: { type: string }
+        taskForm: { $ref: '#/components/schemas/TaskForm' }
+        totalAmount: { type: string }
+        platformFee: { type: string }
+        subOrderCount: { type: integer }
+        settledCount: { type: integer }
+        status: { $ref: '#/components/schemas/TaskStatus' }
+        statusName: { type: string }
+        escrowStatus: { type: string }
+        createdAt: { type: string, format: date-time }
+
+    OrderDetail:
+      allOf:
+        - $ref: '#/components/schemas/OrderSummary'
+        - type: object
+          properties:
+            escrow: { $ref: '#/components/schemas/EscrowInfo' }
+            subOrders:
+              type: array
+              items: { $ref: '#/components/schemas/SubOrderDetail' }
+
+    EscrowInfo:
+      type: object
+      properties:
+        escrowId: { type: integer, format: int64 }
+        escrowNo: { type: string }
+        amount: { type: string }
+        releasedAmount: { type: string }
+        refundedAmount: { type: string }
+        status: { type: string, enum: [CREATED, FROZEN, PARTIAL_RELEASED, RELEASED, FROZEN_DISPUTE, REFUNDED, CANCELLED] }
+        channel: { type: string, enum: [WECHAT, ALIPAY] }
+        paidAt: { type: string, format: date-time, nullable: true }
+
+    SubOrderSummary:
+      type: object
+      properties:
+        subOrderId: { type: integer, format: int64 }
+        subOrderNo: { type: string }
+        orderId: { type: integer, format: int64 }
+        taskId: { type: integer, format: int64 }
+        taskTitle: { type: string }
+        taskForm: { $ref: '#/components/schemas/TaskForm' }
+        takerId: { type: integer, format: int64 }
+        takerNickname: { type: string }
+        amount: { type: string, description: 该接单方份额（= 计费基数） }
+        status: { $ref: '#/components/schemas/SubOrderStatus' }
+        statusName: { type: string }
+        deadline: { type: string, format: date-time }
+        acceptDeadline: { type: string, format: date-time, nullable: true }
+        autoAcceptAt: { type: string, format: date-time, nullable: true }
+        modifyRound: { type: integer }
+        disputeFrozen: { type: boolean, description: '⭐ 该份额是否被争端冻结' }
+        remainingSeconds:
+          type: integer
+          nullable: true
+          description: ⭐ 服务端计算的剩余秒数（前端倒计时以此为基准，不依赖本地时间）
+        createdAt: { type: string, format: date-time }
+
+    SubOrderDetail:
+      allOf:
+        - $ref: '#/components/schemas/SubOrderSummary'
+        - type: object
+          properties:
+            deliveryUnits:
+              type: array
+              description: ⭐ 结算单元：普通任务 1 个 WHOLE；里程碑 N 个
+              items: { $ref: '#/components/schemas/DeliveryUnit' }
+            deliveries:
+              type: array
+              items:
+                type: object
+                properties:
+                  round: { type: integer }
+                  deliveryDesc: { type: string }
+                  attachments: { type: array, items: { type: string } }
+                  selfCheck: { type: object, additionalProperties: true }
+                  createdAt: { type: string, format: date-time }
+            acceptanceItems:
+              type: array
+              items: { $ref: '#/components/schemas/AcceptanceItem' }
+            settlement:
+              allOf: [{ $ref: '#/components/schemas/SettlementInfo' }]
+              nullable: true
+            allowedActions:
+              type: array
+              items: { type: string, example: DELIVER }
+
+    DeliveryUnit:
+      type: object
+      description: ⭐ 统一结算单元 —— 资金动作与抽成的最小粒度
+      properties:
+        unitId: { type: integer, format: int64 }
+        unitNo: { type: string }
+        unitType: { type: string, enum: [WHOLE, MILESTONE, BATCH] }
+        seq: { type: integer }
+        name: { type: string }
+        amount: { type: string }
+        status: { type: string, enum: [PENDING, IN_PROGRESS, SUBMITTED, ACCEPTED, REJECTED, DISPUTED, SETTLED, REFUNDED] }
+        deliverableDesc: { type: string }
+        deadline: { type: string, format: date-time, nullable: true }
+        acceptDeadline: { type: string, format: date-time, nullable: true }
+        autoAcceptAt: { type: string, format: date-time, nullable: true }
+        submittedAt: { type: string, format: date-time, nullable: true }
+        settledAt: { type: string, format: date-time, nullable: true }
+
+    SettlementInfo:
+      type: object
+      description: 抽成明细（用户可见部分）
+      properties:
+        baseAmount: { type: string, description: 计费基数 }
+        finalRate: { type: number, example: 0.045 }
+        commissionAmount: { type: string, description: 佣金 }
+        takerNetAmount: { type: string, description: 接单方实得 }
+        creditLevel: { $ref: '#/components/schemas/CreditLevelCode' }
+        creditDelta: { type: number, description: 信誉分带来的费率修正 }
+        calcTime: { type: string, format: date-time }
+        note: { type: string, example: "已按 4.5% 计费（良好等级 −0.5%）" }
+
+    DeliveryRequest:
+      type: object
+      required: [deliveryDesc]
+      properties:
+        unitId: { type: integer, format: int64, nullable: true, description: 里程碑/批次交付时指定 }
+        deliveryDesc: { type: string, maxLength: 5000 }
+        attachments: { type: array, items: { type: string } }
+        selfCheck:
+          type: object
+          description: "⭐ 对照验收标准的自查结果，形如 {\"验收项id\": true}"
+          additionalProperties: { type: boolean }
+
+    # ---------- 钱包 ----------
+    WalletSummary:
+      type: object
+      properties:
+        available: { type: string, description: 可用余额 }
+        frozen: { type: string, description: 冻结中（托管中/提现审核中） }
+        totalIn: { type: string }
+        totalOut: { type: string }
+        withdrawable:
+          type: string
+          description: ⭐ 可提现金额（按信誉等级的提现周期过滤在途资金后的结果）
+        withdrawDays: { type: integer, description: 当前等级的提现周期 T+N }
+        pendingSettlement: { type: string, description: 待结算（已验收未分账） }
+
+    WalletTxn:
+      type: object
+      properties:
+        txnNo: { type: string }
+        bizType: { type: string, enum: [ESCROW, RELEASE, REFUND, WITHDRAW, FEE, ADJUST, REVERSE] }
+        direction: { type: string, enum: [DEBIT, CREDIT], description: 复式记账：Σ借 = Σ贷 }
+        amount: { type: string }
+        balanceAfter: { type: string, nullable: true }
+        orderId: { type: integer, format: int64, nullable: true }
+        subOrderId: { type: integer, format: int64, nullable: true }
+        unitId: { type: integer, format: int64, nullable: true }
+        remark: { type: string }
+        createdAt: { type: string, format: date-time }
+
+    EscrowPayParams:
+      type: object
+      description: ⭐ 按 X-Client 返回不同结构 —— 这是四端复用后端时唯一必须分端的业务逻辑
+      properties:
+        escrowId: { type: integer, format: int64 }
+        escrowNo: { type: string }
+        amount: { type: string }
+        channel: { type: string, enum: [WECHAT, ALIPAY] }
+        payMode: { type: string, enum: [NATIVE, JSAPI, APP] }
+        codeUrl:
+          type: string
+          nullable: true
+          description: 'NATIVE 扫码（web-user / desktop）'
+        jsapiParams:
+          type: object
+          nullable: true
+          description: '小程序 wx.requestPayment 参数（mp-weixin）'
+          additionalProperties: true
+        sdkParams:
+          type: object
+          nullable: true
+          description: 'App 渠道 SDK 参数（app-android / app-ios）'
+          additionalProperties: true
+        expireSeconds: { type: integer, description: 支付超时（默认 30 分钟） }
+
+    WithdrawRequest:
+      type: object
+      required: [amount, channel, accountName]
+      properties:
+        amount: { type: string, minimum: '100' }
+        channel: { type: string, enum: [WECHAT, ALIPAY, BANK] }
+        bankAccount: { type: string, description: L4 数据，服务端立即加密 }
+        accountName: { type: string, description: ⭐ 必须与实名一致，否则 40006 }
+        mfaCode: { type: string }
+
+    WithdrawApply:
+      type: object
+      properties:
+        withdrawNo: { type: string }
+        amount: { type: string }
+        fee: { type: string }
+        actualAmount: { type: string }
+        bankAccountMasked: { type: string }
+        status: { type: string, enum: [PENDING, AUDITING, APPROVING, PROCESSING, SUCCESS, FAILED, REJECTED] }
+        statusName: { type: string }
+        rejectReason: { type: string }
+        expectedArrivalAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: ⭐ 预计到账时间（按信誉等级 T+N 计算）
+        createdAt: { type: string, format: date-time }
+
+    # ---------- 抽成 ----------
+    CommissionPreview:
+      type: object
+      description: |
+        ⭐ 报价/发单时实时展示「金额 / 服务费 / 实得」三行明细。
+        口径：向**接单方**抽取；发单方所见即所付，无隐藏费用。
+        ⚠️ 产品叙事是"价格透明"，⛔ 不是"发单方省钱"（抽成向谁收本质是定价展示问题）。
+      properties:
+        baseAmount: { type: string, example: "1000.00" }
+        baseRate: { type: number, example: 0.05 }
+        creditDelta: { type: number, example: -0.005 }
+        finalRate: { type: number, example: 0.045 }
+        commissionAmount: { type: string, example: "45.00" }
+        takerNetAmount: { type: string, example: "955.00" }
+        creditLevel: { $ref: '#/components/schemas/CreditLevelCode' }
+        matchedRule:
+          type: object
+          description: 命中的规则（"为什么是这个价"必须可解释）
+          properties:
+            ruleType: { type: string, enum: [ACTIVITY, CATEGORY, TIER, BASE] }
+            ruleId: { type: integer, format: int64 }
+            remark: { type: string, example: "2000-10000 元档：4%" }
+        balanceCheck:
+          type: string
+          description: 配平校验：`佣金 + 实得 == 基数`（恒等于 true，用于自证）
+          example: "45.00 + 955.00 = 1000.00 ✓"
+
+    CommissionRule:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        ruleType: { type: string, enum: [BASE, CATEGORY, TIER, ACTIVITY] }
+        categoryId: { type: integer, format: int64, nullable: true }
+        amountMin: { type: string, nullable: true }
+        amountMax: { type: string, nullable: true }
+        rate: { type: number, minimum: 0.01, maximum: 0.20 }
+        priority: { type: integer, description: 越小越优先 }
+        stackCreditDelta: { type: boolean, description: 是否叠加信誉分修正 }
+        enabled: { type: boolean }
+        effectiveFrom: { type: string, format: date-time, nullable: true }
+        effectiveTo: { type: string, format: date-time, nullable: true }
+        remark: { type: string }
+
+    # ---------- 争端 ----------
+    DisputeCreateRequest:
+      type: object
+      required: [subOrderId, type, reason]
+      properties:
+        subOrderId: { type: integer, format: int64 }
+        unitId: { type: integer, format: int64, nullable: true, description: 里程碑争议时指定 }
+        type: { type: string, enum: [QUALITY, OVERDUE, REFUSE_ACCEPT, NO_DELIVERY, OTHER] }
+        reason: { type: string, maxLength: 2000 }
+        demandAmount: { type: string, nullable: true, description: 期望金额 }
+        evidences: { type: array, items: { type: string } }
+
+    DisputeTicket:
+      type: object
+      properties:
+        ticketId: { type: integer, format: int64 }
+        ticketNo: { type: string }
+        orderId: { type: integer, format: int64 }
+        subOrderId: { type: integer, format: int64 }
+        taskTitle: { type: string }
+        initiatorId: { type: integer, format: int64 }
+        respondentId: { type: integer, format: int64 }
+        type: { type: string }
+        reason: { type: string }
+        demandAmount: { type: string, nullable: true }
+        frozenAmount: { type: string, description: '⭐ 已冻结份额（争议期间禁止分账）' }
+        status: { $ref: '#/components/schemas/DisputeStatus' }
+        statusName: { type: string }
+        priority: { type: string, enum: [NORMAL, URGENT] }
+        handlerId: { type: integer, format: int64, nullable: true }
+        slaDeadline: { type: string, format: date-time }
+        slaRemainingSeconds: { type: integer, nullable: true }
+        evidenceDeadline: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+
+    DisputeDetail:
+      allOf:
+        - $ref: '#/components/schemas/DisputeTicket'
+        - type: object
+          properties:
+            evidences:
+              type: array
+              items:
+                type: object
+                properties:
+                  side: { type: string, enum: [INITIATOR, RESPONDENT] }
+                  eviType: { type: string }
+                  content: { type: string }
+                  fileKeys: { type: array, items: { type: string } }
+                  round: { type: integer }
+                  createdAt: { type: string, format: date-time }
+            timeline:
+              type: array
+              description: ⭐ 对外可见的操作时间轴（UC-U-72）
+              items:
+                type: object
+                properties:
+                  action: { type: string }
+                  fromStatus: { type: string }
+                  toStatus: { type: string }
+                  content: { type: string }
+                  operatorType: { type: string }
+                  createdAt: { type: string, format: date-time }
+            verdict:
+              allOf: [{ $ref: '#/components/schemas/VerdictInfo' }]
+              nullable: true
+            chatMessages:
+              type: array
+              description: 关联会话的聊天记录（只读调阅，作为证据；⛔ 不可删）
+              items: { $ref: '#/components/schemas/ImMessage' }
+
+    VerdictInfo:
+      type: object
+      properties:
+        verdictId: { type: integer, format: int64 }
+        verdictVersion: { type: integer }
+        result: { type: string, enum: [REFUND_FULL, REFUND_PART, RELEASE_FULL, PENALTY] }
+        refundAmount: { type: string }
+        releaseAmount: { type: string }
+        commissionAmount: { type: string, description: '⭐ 按实结金额重算的佣金（⛔ 不是按原订单金额）' }
+        creditDeltaInitiator: { type: integer }
+        creditDeltaRespondent: { type: integer }
+        reason: { type: string, description: ⭐ 裁决理由（必填，用户可见） }
+        createdAt: { type: string, format: date-time }
+
+    VerdictRequest:
+      type: object
+      required: [result, reason, mfaCode]
+      properties:
+        result: { type: string, enum: [REFUND_FULL, REFUND_PART, RELEASE_FULL, PENALTY] }
+        refundAmount: { type: string, description: REFUND_PART 时必填 }
+        releaseAmount: { type: string, description: REFUND_PART 时必填 }
+        commissionAmount:
+          type: string
+          description: |
+            ⭐ 按**实结金额**重算的佣金。
+            例：子订单 1000 元、费率 5%，裁决各担一半（实结 500）→ 佣金重算为 25 元。
+            ⛔ 不是按原订单金额算 50 元。
+        creditDeltaInitiator: { type: integer }
+        creditDeltaRespondent: { type: integer }
+        reason: { type: string, maxLength: 2000, description: 必填，用户可见 }
+        internalNote: { type: string, maxLength: 2000, description: 内部备注，用户不可见 }
+        mfaCode: { type: string, description: 敏感操作二次认证 }
+
+    # ---------- IM ----------
+    ImSession:
+      type: object
+      properties:
+        sessionId: { type: integer, format: int64 }
+        peerUserId: { type: integer, format: int64 }
+        peerNickname: { type: string }
+        peerAvatar: { type: string }
+        taskId: { type: integer, format: int64, nullable: true }
+        orderId: { type: integer, format: int64, nullable: true }
+        lastMsgText: { type: string }
+        lastMsgAt: { type: string, format: date-time }
+        unreadCount: { type: integer }
+        pinned: { type: boolean, description: ⚠️ 置顶会话在 BOSS 场景禁发；本平台仅作展示排序 }
+
+    ImMessage:
+      type: object
+      properties:
+        messageId: { type: integer, format: int64 }
+        sessionId: { type: integer, format: int64 }
+        seq: { type: integer, format: int64, description: ⭐ 会话内递增序号，离线补偿按最大 seq 拉增量 }
+        fromUserId: { type: integer, format: int64 }
+        msgType: { type: string, enum: [TEXT, IMAGE, FILE, ORDER_CARD, SYSTEM] }
+        content: { type: string }
+        fileKey: { type: string }
+        extra: { type: object, additionalProperties: true }
+        sensitiveHit: { type: boolean }
+        riskTag: { type: string, description: 'OFF_PLATFORM = 疑似脱离平台交易' }
+        recalled: { type: boolean, description: 撤回（⛔ 逻辑标记，原文仍保留作证据） }
+        createdAt: { type: string, format: date-time }
+
+    # ---------- 通知 ----------
+    Notification:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        tplCode: { type: string, example: SUB_ORDER_SETTLED }
+        channel: { type: string, enum: [INNER, SMS, WECHAT_MP, PUSH, DESKTOP, EMAIL] }
+        title: { type: string }
+        content: { type: string }
+        bizType: { type: string, nullable: true }
+        bizId: { type: integer, format: int64, nullable: true }
+        read: { type: boolean }
+        createdAt: { type: string, format: date-time }
+
+    # ---------- 公共 ----------
+    Category:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        parentId: { type: integer, format: int64 }
+        path: { type: string }
+        level: { type: integer }
+        code: { type: string, example: DEV_BACKEND }
+        name: { type: string, example: "后端开发" }
+        icon: { type: string }
+        allowForms:
+          type: array
+          description: ⭐ 该分类允许的任务形态（前端据此禁用选项）
+          items: { $ref: '#/components/schemas/TaskForm' }
+        allowPayModes:
+          type: array
+          items: { $ref: '#/components/schemas/PayMode' }
+        commissionRate:
+          type: number
+          nullable: true
+          description: 分类覆盖费率，null 表示走阶梯/基准
+        requireLicense: { type: boolean }
+        auditLevel: { type: string, enum: [MACHINE, HUMAN] }
+        needCheckinDefault: { type: boolean }
+        children: { type: array, items: { $ref: '#/components/schemas/Category' } }
+
+    DictItem:
+      type: object
+      properties:
+        code: { type: string, example: RECRUITING }
+        name: { type: string, example: "招募中" }
+        group: { type: string, example: RECRUIT }
+        color: { type: string, example: "#16A34A", description: 前端状态标签色 }
+        order: { type: integer }
+        extra:
+          type: object
+          description: 附加信息，如可用操作列表、等级权益摘要
+          additionalProperties: true
+
+    ClientCapability:
+      type: object
+      properties:
+        clientCode: { type: string }
+        capability: { type: string, example: LARGE_UPLOAD }
+        supported: { type: boolean }
+        extraConfig:
+          type: object
+          description: "附加约束，如 {\"maxFileSizeMb\":20,\"chunked\":false}"
+          additionalProperties: true
+        minVersion: { type: string }
+
+    UploadPolicy:
+      type: object
+      properties:
+        chunked: { type: boolean, description: 小程序为 false }
+        chunkSize: { type: integer, nullable: true }
+        maxFileSizeMb: { type: integer, description: 小程序为 20 }
+        allowedTypes: { type: array, items: { type: string } }
+        endpoint: { type: string, description: 对象存储直传端点 }
+        fallbackHint:
+          type: string
+          nullable: true
+          example: "超大交付物请使用电脑端或 App 上传"
+
+    UploadToken:
+      type: object
+      properties:
+        fileKey: { type: string }
+        uploadUrl:
+          type: string
+          nullable: true
+          description: 单次直传地址；分片时为 null
+        formFields: { type: object, additionalProperties: { type: string }, nullable: true }
+        chunkUrls: { type: array, items: { type: string }, nullable: true }
+        instantUpload:
+          type: boolean
+          description: ⭐ 秒传命中（sha256 已存在），无需真实上传
+        expireSeconds: { type: integer }
+
+    ChannelAck:
+      type: object
+      description: 渠道回调应答（格式按渠道要求，此处为微信 v3 示例）
+      properties:
+        code: { type: string, example: "SUCCESS" }
+        message: { type: string, example: "成功" }
+    Review:
+      type: object
+      properties:
+        reviewId: { type: integer, format: int64 }
+        subOrderId: { type: integer, format: int64 }
+        taskId: { type: integer, format: int64 }
+        taskTitle: { type: string }
+        fromUserId: { type: integer, format: int64, nullable: true, description: 匿名评价为 null }
+        fromUserNickname: { type: string, nullable: true }
+        toUserId: { type: integer, format: int64 }
+        direction: { type: string, enum: [PUBLISHER_TO_TAKER, TAKER_TO_PUBLISHER] }
+        score: { type: integer, minimum: 1, maximum: 5 }
+        tags: { type: array, items: { type: string } }
+        content: { type: string }
+        anonymous: { type: boolean }
+        autoGenerated: { type: boolean, description: 是否超时默认好评 }
+        createdAt: { type: string, format: date-time }
+
+    ExportTask:
+      type: object
+      description: "⭐ 异步导出任务（P2-⑱ 补充：大导出不再同步返回，避免 HTTP 超时与连接占用）"
+      properties:
+        exportId: { type: string }
+        exportType: { type: string }
+        format: { type: string, enum: [CSV, XLSX] }
+        status: { type: string, enum: [PENDING, RUNNING, SUCCESS, FAILED, EXPIRED] }
+        progress: { type: integer, description: 0-100 }
+        totalRows: { type: integer, nullable: true }
+        downloadUrl:
+          type: string
+          nullable: true
+          description: "短时效签名 URL（默认 24 小时），⛔ 不落公开存储"
+        expireAt: { type: string, format: date-time, nullable: true }
+        failReason: { type: string, nullable: true }
+        masked:
+          type: boolean
+          description: "⭐ 是否已脱敏（L4 字段默认全遮、L3 部分遮）"
+        createdAt: { type: string, format: date-time }

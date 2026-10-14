@@ -1,0 +1,2545 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>任务撮合平台 · 微信小程序端 可点击原型（14 屏）</title>
+<style>
+/* ==========================================================================
+   任务撮合平台 · 微信小程序端 静态可点击原型
+   单文件自包含：无外部 CDN / 字体 / 图片；图标 = emoji 或纯 CSS 图形
+   依据：《2026-10-15-任务撮合平台-总体设计.md》§5.15.2 / §5.15.3 / §4.9.2 / §4.10.3-4 / §4.11.2
+   ========================================================================== */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --blue:#2563EB; --blue-d:#1D4ED8; --blue-l:#EFF6FF; --blue-b:#BFDBFE;
+  --green:#16A34A; --green-l:#F0FDF4; --green-b:#BBF7D0;
+  --amber:#F59E0B; --amber-l:#FFFBEB; --amber-b:#FDE68A;
+  --red:#DC2626;  --red-l:#FEF2F2;   --red-b:#FECACA;
+  --orange:#F97316; --purple:#7C3AED; --purple-l:#F5F3FF;
+  --ink:#0F172A; --ink2:#334155; --muted:#64748B; --muted2:#94A3B8;
+  --line:#E5EAF2; --line2:#EFF3F8; --bg:#F6F8FB; --card:#FFFFFF;
+  --sys:#0B1220;
+  --sh:0 1px 2px rgba(15,23,42,.05);
+}
+html{scroll-behavior:smooth}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Helvetica Neue",Arial,sans-serif;
+  background:#E9EEF6;
+  background-image:radial-gradient(circle at 12% 0%,#E3ECFB 0%,transparent 45%),radial-gradient(circle at 88% 8%,#EAF3EC 0%,transparent 40%);
+  color:var(--ink); -webkit-font-smoothing:antialiased; font-size:14px; line-height:1.5;
+}
+.page{max-width:1640px;margin:0 auto;padding:0 22px 90px}
+
+/* ---------- 顶部吸顶工具栏 ---------- */
+.topbar{position:sticky;top:0;z-index:80;background:rgba(255,255,255,.90);backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--line);box-shadow:0 4px 18px -12px rgba(15,23,42,.35)}
+.topbar-in{max-width:1640px;margin:0 auto;padding:9px 22px 8px}
+.tb-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.tb-title{font-size:15px;font-weight:700;letter-spacing:.2px;display:flex;align-items:center;gap:8px}
+.tb-title .dot{width:9px;height:9px;border-radius:50%;background:var(--blue);box-shadow:0 0 0 4px var(--blue-l)}
+.pill{font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;background:var(--amber-l);color:#B45309;border:1px solid var(--amber-b)}
+.pill.gray{background:#F1F5F9;color:var(--muted);border-color:var(--line)}
+.tb-sp{flex:1}
+.tb-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.tbtn{font-family:inherit;font-size:12.5px;font-weight:600;color:var(--ink2);background:#fff;border:1px solid var(--line);
+  border-radius:9px;padding:7px 11px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:.15s}
+.tbtn:hover{border-color:var(--blue-b);color:var(--blue);background:var(--blue-l)}
+.tbtn.on{background:var(--blue);border-color:var(--blue);color:#fff}
+.tbtn[disabled]{opacity:.4;cursor:not-allowed}
+.counter{font-size:12.5px;font-weight:700;color:var(--muted);min-width:112px;text-align:center;font-variant-numeric:tabular-nums}
+/* 索引 chips */
+.idx{display:flex;gap:6px;overflow-x:auto;padding:8px 0 3px;scrollbar-width:thin}
+.idx::-webkit-scrollbar{height:6px}
+.idx::-webkit-scrollbar-thumb{background:#CBD5E1;border-radius:9px}
+.ib{flex:none;font-family:inherit;font-size:12px;font-weight:600;color:var(--ink2);background:#fff;border:1px solid var(--line);
+  border-radius:8px;padding:6px 9px;cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:6px;transition:.15s}
+.ib b{font-size:11px;font-weight:800;color:#fff;background:var(--muted2);border-radius:5px;padding:1px 5px;min-width:19px;text-align:center}
+.ib:hover{border-color:var(--blue-b);background:var(--blue-l)}
+.ib.on{border-color:var(--blue);background:var(--blue);color:#fff}
+.ib.on b{background:rgba(255,255,255,.28)}
+
+/* ---------- 设计说明 ---------- */
+.brief{background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:var(--sh);padding:18px 20px;margin:18px 0 10px}
+.brief h1{font-size:19px;letter-spacing:.2px;margin-bottom:4px}
+.brief .sub{color:var(--muted);font-size:12.5px;margin-bottom:14px}
+.brief-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(268px,1fr));gap:12px;margin-top:6px}
+.bcard{border:1px solid var(--line);border-radius:12px;padding:12px 13px;background:#FCFDFF}
+.bcard h3{font-size:13px;display:flex;align-items:center;gap:6px;margin-bottom:7px}
+.bcard h3 .n{width:18px;height:18px;border-radius:6px;background:var(--blue);color:#fff;font-size:11px;display:flex;align-items:center;justify-content:center;font-weight:800}
+.bcard.warn{border-color:var(--amber-b);background:var(--amber-l)}
+.bcard.warn h3 .n{background:var(--amber)}
+.bcard.ok{border-color:var(--green-b);background:var(--green-l)}
+.bcard.ok h3 .n{background:var(--green)}
+.bcard ul{list-style:none;display:flex;flex-direction:column;gap:5px}
+.bcard li{font-size:12.3px;color:var(--ink2);padding-left:14px;position:relative;line-height:1.55}
+.bcard li::before{content:"";position:absolute;left:2px;top:7px;width:5px;height:5px;border-radius:50%;background:var(--muted2)}
+.bcard.warn li::before{background:var(--amber)}
+.bcard.ok li::before{background:var(--green)}
+code{font-family:ui-monospace,SFMono-Regular,Consolas,"Courier New",monospace;font-size:11.5px;background:#F1F5F9;border:1px solid var(--line);
+  border-radius:5px;padding:0 4px;color:#334155}
+.hintline{font-size:12.3px;color:var(--muted);margin-top:12px;padding-top:11px;border-top:1px dashed var(--line)}
+.hintline b{color:var(--blue)}
+.kbd{display:inline-block;font-size:11px;font-weight:700;border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:0 5px;background:#fff;color:var(--ink2)}
+
+/* ---------- 画廊 ---------- */
+.gallery{display:flex;flex-wrap:wrap;gap:38px 34px;justify-content:center;align-items:flex-start;padding:22px 0 10px}
+.screen{display:flex;flex-direction:column;align-items:center;gap:11px;scroll-margin-top:132px;flex:none}
+.cap{text-align:center;line-height:1.35}
+.cap .no{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:800;color:#fff;background:var(--ink);border-radius:8px;padding:3px 10px}
+.cap .nm{font-size:13.5px;font-weight:700;margin-top:5px;color:var(--ink)}
+.cap .rt{font-size:11px;color:var(--muted);font-family:ui-monospace,Consolas,monospace;margin-top:2px}
+.cap .sec{font-size:11px;color:var(--muted2);margin-top:2px}
+.screen.flash .phone{animation:flash 1.1s ease}
+@keyframes flash{0%{box-shadow:0 0 0 10px #0f172a,0 0 0 11px #334155,0 0 0 15px rgba(37,99,235,.55),0 22px 50px -14px rgba(15,23,42,.5)}
+  100%{box-shadow:0 0 0 10px #0f172a,0 0 0 11px #334155,0 0 0 10px rgba(37,99,235,0),0 22px 50px -14px rgba(15,23,42,.5)}}
+
+/* ---------- 手机框 ---------- */
+.phone{position:relative;width:375px;height:812px;background:#fff;border-radius:44px;overflow:hidden;flex:none;
+  display:flex;flex-direction:column;
+  box-shadow:0 0 0 10px #0F172A,0 0 0 11px #334155,0 22px 50px -14px rgba(15,23,42,.5)}
+.sbar{flex:none;height:44px;position:relative;display:flex;align-items:center;justify-content:space-between;
+  padding:0 24px 0 26px;font-size:13px;font-weight:700;background:#fff;letter-spacing:.2px;z-index:6}
+.island{position:absolute;left:50%;top:9px;transform:translateX(-50%);width:104px;height:26px;border-radius:15px;background:var(--sys)}
+.sb-r{display:flex;align-items:center;gap:5px}
+.bars{display:flex;align-items:flex-end;gap:2px;height:11px}
+.bars i{width:3px;background:var(--ink);border-radius:1px;display:block}
+.bars i:nth-child(1){height:4px}.bars i:nth-child(2){height:6px}.bars i:nth-child(3){height:8.5px}.bars i:nth-child(4){height:11px}
+.batt{width:23px;height:11.5px;border:1.4px solid var(--ink);border-radius:3.5px;position:relative;padding:1.4px}
+.batt::after{content:"";position:absolute;right:-3.4px;top:3.4px;width:2px;height:4.5px;background:var(--ink);border-radius:0 2px 2px 0}
+.batt i{display:block;height:100%;width:72%;background:var(--ink);border-radius:1.5px}
+.g5{font-size:10.5px;font-weight:800;letter-spacing:.3px}
+
+.hd{flex:none;height:48px;display:flex;align-items:center;gap:8px;padding:0 12px;background:#fff;border-bottom:1px solid var(--line2);z-index:5}
+.hd .t{flex:1;font-size:16px;font-weight:700;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hd .ic{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:15px;cursor:pointer;background:#F4F7FC}
+.hd .ic:active{background:#E7EEF9}
+.hd .ic.plain{background:transparent}
+.back{font-size:17px;line-height:1}
+.vp{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;background:var(--bg);position:relative}
+.vp::-webkit-scrollbar{width:0;height:0}
+.vp.pad{padding-bottom:12px}
+
+/* ---------- 通用组件 ---------- */
+.card{background:#fff;border:1px solid var(--line2);border-radius:14px;box-shadow:var(--sh);padding:12px;margin:10px 12px}
+.card.tight{padding:10px}
+.card.nm{margin:0 0 10px}
+.tags{display:flex;flex-wrap:wrap;gap:5px}
+.tag{display:inline-flex;align-items:center;gap:3px;height:20px;padding:0 7px;border-radius:6px;font-size:11px;font-weight:700;line-height:1;white-space:nowrap}
+.t-blue{background:var(--blue-l);color:var(--blue-d);border:1px solid var(--blue-b)}
+.t-green{background:var(--green-l);color:#15803D;border:1px solid var(--green-b)}
+.t-amber{background:var(--amber-l);color:#B45309;border:1px solid var(--amber-b)}
+.t-red{background:var(--red-l);color:var(--red);border:1px solid var(--red-b)}
+.t-gray{background:#F1F5F9;color:var(--muted);border:1px solid var(--line)}
+.t-purple{background:var(--purple-l);color:#6D28D9;border:1px solid #DDD6FE}
+.t-solid{background:var(--blue);color:#fff;border:1px solid var(--blue)}
+.t-solidg{background:var(--green);color:#fff;border:1px solid var(--green)}
+.t-solida{background:var(--amber);color:#fff;border:1px solid var(--amber)}
+.t-solidr{background:var(--red);color:#fff;border:1px solid var(--red)}
+.credit{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;padding:2px 7px;border-radius:99px;border:1px solid}
+.c-green{color:#15803D;background:var(--green-l);border-color:var(--green-b)}
+.c-blue{color:var(--blue-d);background:var(--blue-l);border-color:var(--blue-b)}
+.c-amber{color:#B45309;background:var(--amber-l);border-color:var(--amber-b)}
+.c-red{color:var(--red);background:var(--red-l);border-color:var(--red-b)}
+.c-gray{color:var(--muted);background:#F1F5F9;border-color:var(--line)}
+.c-purple{color:#6D28D9;background:var(--purple-l);border-color:#DDD6FE}
+.mut{color:var(--muted)}
+.sm{font-size:11.5px}
+.xs{font-size:10.5px}
+.b{font-weight:700}
+.row{display:flex;align-items:center;gap:8px}
+.sp{justify-content:space-between}
+.wrap{flex-wrap:wrap}
+.mt6{margin-top:6px}.mt8{margin-top:8px}.mt10{margin-top:10px}.mt12{margin-top:12px}
+.sechd{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:800;color:var(--ink2);margin:12px 12px 6px}
+.sechd .bar{width:3px;height:13px;border-radius:2px;background:var(--blue)}
+.sechd .r{margin-left:auto;font-weight:600;color:var(--muted);font-size:11px}
+.hr{height:1px;background:var(--line2);margin:10px 0}
+.price{color:var(--red);font-weight:800;font-variant-numeric:tabular-nums}
+.dash{border-top:1px dashed var(--line);margin:9px 0}
+
+/* 按钮 */
+.btn{width:100%;height:46px;border:none;border-radius:12px;background:var(--blue);color:#fff;font-family:inherit;
+  font-size:16px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:7px;cursor:pointer;transition:.15s}
+.btn:hover{background:var(--blue-d)}
+.btn:active{transform:translateY(1px)}
+.btn.green{background:var(--green)}.btn.green:hover{background:#15803D}
+.btn.ghost{background:#fff;color:var(--ink2);border:1px solid var(--line)}
+.btn.ghost:hover{background:#F8FAFC;color:var(--blue);border-color:var(--blue-b)}
+.btn.amber{background:var(--amber);color:#fff}
+.btn.sm{height:34px;font-size:13px;border-radius:9px;width:auto;padding:0 14px}
+.btn.xs{height:28px;font-size:12px;border-radius:8px;width:auto;padding:0 10px}
+.btn.tiny{height:24px;font-size:11px;border-radius:7px;width:auto;padding:0 9px}
+.btn.wx{background:#07C160}.btn.wx:hover{background:#06AD56}
+.btn[disabled]{background:#E2E8F0;color:#94A3B8;cursor:not-allowed}
+.bbar{flex:none;border-top:1px solid var(--line);background:#fff;padding:9px 12px 8px;display:flex;align-items:center;gap:9px;z-index:5}
+.bbar .col{flex:1;display:flex;flex-direction:column;gap:2px}
+.bbar .big{font-size:17px;font-weight:800;color:var(--red);font-variant-numeric:tabular-nums;line-height:1.1}
+.bwrap{display:flex;gap:8px;flex:1.9}
+
+/* 底部 Tab */
+.tabbar{flex:none;background:#fff;border-top:1px solid var(--line);display:flex;flex-direction:column;z-index:5}
+.tabrow{display:flex;height:52px}
+.tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:pointer;
+  font-size:10.5px;font-weight:600;color:var(--muted2);position:relative}
+.tab .ti{font-size:19px;line-height:1;filter:grayscale(1);opacity:.55}
+.tab.on{color:var(--blue)}
+.tab.on .ti{filter:none;opacity:1}
+.tab .bdg{position:absolute;top:5px;left:calc(50% + 6px);min-width:15px;height:15px;border-radius:99px;background:var(--red);color:#fff;
+  font-size:9.5px;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 4px;border:1.5px solid #fff}
+.hi{height:20px;display:flex;align-items:center;justify-content:center}
+.hi i{width:124px;height:5px;border-radius:99px;background:#0F172A;opacity:.22;display:block}
+
+/* 输入 / 表单 */
+.field{background:#fff;border:1px solid var(--line2);border-radius:14px;margin:10px 12px;padding:11px 12px;box-shadow:var(--sh)}
+.flabel{font-size:12px;font-weight:700;color:var(--ink2);display:flex;align-items:center;gap:6px;margin-bottom:7px}
+.flabel .req{color:var(--red);font-weight:800}
+.flabel .r{margin-left:auto;font-weight:600;color:var(--muted2);font-size:11px}
+.inp{height:42px;border:1px solid var(--line);border-radius:10px;display:flex;align-items:center;gap:6px;padding:0 11px;background:#FCFDFF}
+.inp.on{border-color:var(--blue);box-shadow:0 0 0 3px var(--blue-l)}
+.inp .cur{font-size:16px;font-weight:800;color:var(--red)}
+.inp .val{font-size:17px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:.4px}
+.inp .ph{color:var(--muted2);font-size:13.5px;font-weight:400}
+.ta{border:1px solid var(--line);border-radius:10px;background:#FCFDFF;padding:9px 11px;font-size:12.5px;color:var(--ink2);line-height:1.6;white-space:pre-wrap}
+.ta .cursor{display:inline-block;width:1.5px;height:13px;background:var(--blue);vertical-align:-2px;animation:bl 1s steps(1) infinite}
+@keyframes bl{50%{opacity:0}}
+.stepper{display:flex;align-items:center;gap:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;height:42px}
+.stepper button{width:44px;height:100%;border:none;background:#F8FAFC;font-size:18px;font-weight:700;color:var(--ink2);cursor:pointer;font-family:inherit}
+.stepper button:hover{background:#EEF3FB;color:var(--blue)}
+.stepper .v{flex:1;text-align:center;font-size:15px;font-weight:800;font-variant-numeric:tabular-nums}
+.segs{display:flex;gap:6px;flex-wrap:wrap}
+.seg{font-size:12px;font-weight:700;padding:7px 12px;border-radius:9px;border:1px solid var(--line);background:#fff;color:var(--ink2);cursor:pointer;font-family:inherit}
+.seg.on{background:var(--blue);border-color:var(--blue);color:#fff}
+.seg:hover:not(.on){border-color:var(--blue-b);color:var(--blue)}
+
+/* 上传 */
+.up{border:1.5px dashed #C7D5EA;border-radius:12px;background:#FBFDFF;padding:16px 12px;text-align:center;cursor:pointer}
+.up:hover{border-color:var(--blue);background:var(--blue-l)}
+.up .plus{width:38px;height:38px;border-radius:12px;background:var(--blue-l);color:var(--blue);font-size:22px;font-weight:600;
+  display:flex;align-items:center;justify-content:center;margin:0 auto 7px;border:1px solid var(--blue-b)}
+.fitem{display:flex;align-items:center;gap:9px;border:1px solid var(--line2);border-radius:10px;padding:8px 10px;margin-top:7px;background:#fff}
+.fitem .fi{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:15px;background:#F1F5F9;flex:none}
+.fitem.bad{border-color:var(--red-b);background:var(--red-l)}
+.fitem.bad .fi{background:var(--red-l)}
+.fitem .fn{flex:1;min-width:0}
+.fitem .fn .n1{font-size:12.3px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fitem .fn .n2{font-size:10.5px;color:var(--muted)}
+.fitem .x{font-size:14px;color:var(--muted2);cursor:pointer;padding:2px 4px}
+.fitem .x:hover{color:var(--red)}
+
+/* 提示条 */
+.notice{display:flex;gap:9px;border-radius:12px;padding:10px 11px;font-size:12px;line-height:1.6;margin:10px 12px;border:1px solid;
+  flex-wrap:wrap;align-items:flex-start}
+.notice .ni{font-size:15px;line-height:1.25;flex:none}
+.notice.amber{background:var(--amber-l);border-color:var(--amber-b);color:#92400E}
+.notice.red{background:var(--red-l);border-color:var(--red-b);color:#991B1B}
+.notice.blue{background:var(--blue-l);border-color:var(--blue-b);color:#1E40AF}
+.notice.green{background:var(--green-l);border-color:var(--green-b);color:#166534}
+.notice b{font-weight:800}
+.notice .nt{margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;flex-basis:100%;width:100%}
+.notice .badge{display:inline-block;font-size:10px;font-weight:800;padding:1px 6px;border-radius:5px;background:rgba(0,0,0,.07)}
+.lockrow{display:flex;align-items:center;gap:7px;background:#fff5f5;border:1px solid var(--red-b);border-radius:11px;padding:8px 10px;margin:10px 12px;font-size:12px;color:#991B1B}
+.lockrow .lk{font-size:14px}
+
+/* 任务卡 */
+.tcard{background:#fff;border:1px solid var(--line2);border-radius:15px;box-shadow:var(--sh);padding:12px;margin:10px 12px;cursor:pointer;transition:.16s;position:relative}
+.tcard:hover{border-color:var(--blue-b);box-shadow:0 8px 20px -12px rgba(37,99,235,.5);transform:translateY(-1px)}
+.tcard h4{font-size:14.3px;font-weight:700;line-height:1.4;margin-bottom:7px;padding-right:4px}
+.tcard .th{display:flex;gap:8px;align-items:flex-start;justify-content:space-between}
+.tcard .tb{color:var(--red);font-weight:800;font-size:14.5px;white-space:nowrap;font-variant-numeric:tabular-nums;letter-spacing:-.2px}
+.tcard .td{font-size:11.8px;color:var(--muted);line-height:1.55;margin-top:7px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.tcard .tf{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-top:9px;padding-top:9px;border-top:1px dashed var(--line)}
+.tcard .tf .m{font-size:11px;color:var(--muted);display:inline-flex;align-items:center;gap:3px;font-weight:600}
+.tcard .go{position:absolute;right:11px;bottom:11px;font-size:10.5px;font-weight:800;color:var(--blue);display:none}
+.tcard:hover .go{display:block}
+.hot-o{position:relative}
+body.hot [data-goto]{outline:2px dashed rgba(37,99,235,.75);outline-offset:2px;border-radius:10px;background-image:linear-gradient(rgba(37,99,235,.06),rgba(37,99,235,.06))}
+
+/* 分类横滑 */
+.cats{display:flex;gap:7px;overflow-x:auto;padding:9px 12px;background:#fff;border-bottom:1px solid var(--line2);position:sticky;top:0;z-index:4}
+.cats::-webkit-scrollbar{height:0}
+.cat{flex:none;font-size:12.5px;font-weight:700;padding:6px 12px;border-radius:99px;background:#F1F5F9;color:var(--ink2);cursor:pointer;white-space:nowrap;border:1px solid transparent}
+.cat.on{background:var(--blue);color:#fff;border-color:var(--blue)}
+.cat:hover:not(.on){background:var(--blue-l);color:var(--blue);border-color:var(--blue-b)}
+.searchbar{display:flex;gap:8px;padding:9px 12px;background:#fff;align-items:center}
+.sinput{flex:1;height:36px;border-radius:99px;background:#F1F5F9;display:flex;align-items:center;gap:7px;padding:0 12px;font-size:12.5px;color:var(--muted2)}
+.loc{font-size:11.5px;font-weight:700;color:var(--ink2);display:flex;align-items:center;gap:3px;white-space:nowrap}
+
+/* 分段 Tabs（页内） */
+.tabs{display:flex;background:#fff;border-bottom:1px solid var(--line2);position:sticky;top:0;z-index:4;padding:0 4px}
+.tab2{flex:1;text-align:center;padding:11px 2px 9px;font-size:12.8px;font-weight:700;color:var(--muted);cursor:pointer;position:relative;white-space:nowrap}
+.tab2 .n{font-size:10.5px;color:var(--muted2)}
+.tab2.on{color:var(--blue)}
+.tab2.on::after{content:"";position:absolute;left:50%;bottom:0;transform:translateX(-50%);width:26px;height:3px;border-radius:3px;background:var(--blue)}
+.tab2.on .n{color:var(--blue)}
+.tab2:hover:not(.on){color:var(--ink2)}
+
+/* 列表项 */
+.li{display:flex;gap:10px;padding:11px 12px;background:#fff;border-bottom:1px solid var(--line2);cursor:pointer;transition:.15s}
+.li:hover{background:#FAFCFF}
+.li .av{width:42px;height:42px;border-radius:13px;flex:none;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;color:#fff}
+.li .bd{flex:1;min-width:0}
+.li .r1{display:flex;align-items:center;gap:6px}
+.li .r1 .nm{font-size:13.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.li .r1 .tm{margin-left:auto;font-size:10.5px;color:var(--muted2);white-space:nowrap;font-weight:600}
+.li .r2{font-size:12px;color:var(--muted);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.unread{min-width:17px;height:17px;border-radius:99px;background:var(--red);color:#fff;font-size:10px;font-weight:800;
+  display:flex;align-items:center;justify-content:center;padding:0 5px;flex:none}
+.avatar-blue{background:linear-gradient(135deg,#3B82F6,#2563EB)}
+.avatar-green{background:linear-gradient(135deg,#34D399,#16A34A)}
+.avatar-amber{background:linear-gradient(135deg,#FBBF24,#F59E0B)}
+.avatar-purple{background:linear-gradient(135deg,#A78BFA,#7C3AED)}
+.avatar-red{background:linear-gradient(135deg,#F87171,#DC2626)}
+.avatar-gray{background:linear-gradient(135deg,#94A3B8,#64748B)}
+
+/* 报价 / 订单卡 */
+.ocard{background:#fff;border:1px solid var(--line2);border-radius:15px;box-shadow:var(--sh);margin:10px 12px;overflow:hidden;cursor:pointer;transition:.16s}
+.ocard:hover{border-color:var(--blue-b);box-shadow:0 8px 20px -12px rgba(37,99,235,.45)}
+.ocard .oh{display:flex;align-items:center;gap:8px;padding:9px 12px;background:#FAFCFF;border-bottom:1px solid var(--line2);font-size:11px;color:var(--muted);font-weight:600}
+.ocard .oh .no{font-family:ui-monospace,Consolas,monospace;font-weight:700;color:var(--ink2)}
+.ocard .ob{padding:11px 12px}
+.ocard .ob h4{font-size:14px;font-weight:700;line-height:1.4;margin-bottom:6px}
+.ocard .of{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:9px 12px;border-top:1px dashed var(--line);background:#FCFDFF}
+.timer{font-variant-numeric:tabular-nums;font-weight:800;color:var(--ink);font-size:12.5px;letter-spacing:.2px}
+.timer.warn{color:var(--red)}
+.prog{height:6px;border-radius:99px;background:#E9EFF8;overflow:hidden}
+.prog i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#60A5FA,#2563EB)}
+.prog.g i{background:linear-gradient(90deg,#4ADE80,#16A34A)}
+.prog.a i{background:linear-gradient(90deg,#FCD34D,#F59E0B)}
+.kv{display:flex;gap:10px;font-size:12.3px;padding:6px 0;border-bottom:1px dashed var(--line2)}
+.kv:last-child{border-bottom:none}
+.kv .k{color:var(--muted);width:74px;flex:none;font-weight:600}
+.kv .v{flex:1;color:var(--ink2);font-weight:600}
+.kv .v.hl{color:var(--blue);font-weight:800}
+
+/* 验收标准 */
+.std{display:flex;gap:9px;padding:9px 0;border-bottom:1px dashed var(--line2);font-size:12.3px;line-height:1.55}
+.std:last-child{border-bottom:none}
+.std .idx{width:19px;height:19px;border-radius:6px;background:#F1F5F9;color:var(--muted);font-size:11px;font-weight:800;
+  display:flex;align-items:center;justify-content:center;flex:none;margin-top:1px}
+.std.must .idx{background:var(--red);color:#fff}
+.std .tx{flex:1}
+.std .must-tag{display:inline-flex;font-size:9.5px;font-weight:800;color:#fff;background:var(--red);border-radius:4px;padding:0 5px;margin-right:4px;vertical-align:1px}
+.cbx{width:19px;height:19px;border-radius:6px;border:1.5px solid #C7D5EA;flex:none;margin-top:1px;cursor:pointer;display:flex;
+  align-items:center;justify-content:center;font-size:12px;color:#fff;background:#fff}
+.cbx.on{background:var(--blue);border-color:var(--blue)}
+.cbx.on.must{background:var(--red);border-color:var(--red)}
+.cbxrow{display:flex;gap:9px;padding:9px 0;border-bottom:1px dashed var(--line2);font-size:12.3px;line-height:1.55;cursor:pointer}
+.cbxrow:last-child{border-bottom:none}
+.cbxrow.done .tx2{color:var(--muted)}
+
+/* 地图占位 */
+.mapbox{height:96px;border-radius:12px;position:relative;overflow:hidden;border:1px solid var(--line);
+  background:
+    linear-gradient(90deg,rgba(37,99,235,.07) 1px,transparent 1px) 0 0/26px 26px,
+    linear-gradient(0deg,rgba(37,99,235,.07) 1px,transparent 1px) 0 0/26px 26px,
+    linear-gradient(135deg,#EDF4FF,#E6F7EE)}
+.mapbox .rd{position:absolute;background:#fff;box-shadow:0 1px 2px rgba(15,23,42,.08)}
+.mapbox .rd1{left:0;right:0;top:44px;height:9px}
+.mapbox .rd2{top:0;bottom:0;left:118px;width:9px}
+.mapbox .pin{position:absolute;left:112px;top:22px;width:20px;height:20px;border-radius:50% 50% 50% 4px;transform:rotate(-45deg);
+  background:var(--red);border:2.5px solid #fff;box-shadow:0 3px 8px rgba(220,38,38,.4)}
+.mapbox .me{position:absolute;left:214px;top:60px;width:14px;height:14px;border-radius:50%;background:var(--blue);border:2.5px solid #fff;box-shadow:0 0 0 5px rgba(37,99,235,.18)}
+.mapbox .lb{position:absolute;left:9px;bottom:8px;background:rgba(255,255,255,.94);border:1px solid var(--line);border-radius:8px;
+  font-size:10.5px;font-weight:700;color:var(--ink2);padding:3px 7px}
+.mapbox .lb2{position:absolute;right:9px;bottom:8px;background:rgba(255,255,255,.94);border:1px solid var(--line);border-radius:8px;
+  font-size:10.5px;font-weight:700;color:var(--blue);padding:3px 7px}
+
+/* 弹层 */
+.ovl{position:absolute;left:0;right:0;top:44px;bottom:0;background:rgba(15,23,42,.5);display:flex;align-items:flex-end;z-index:20;
+  animation:fade .2s ease}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+.sheet{width:100%;background:#fff;border-radius:22px 22px 0 0;padding:20px 16px 18px;animation:up .28s cubic-bezier(.2,.8,.2,1);max-height:100%;overflow-y:auto}
+@keyframes up{from{transform:translateY(24px);opacity:.6}to{transform:translateY(0);opacity:1}}
+.sheet .mark{width:60px;height:60px;border-radius:50%;margin:0 auto 12px;display:flex;align-items:center;justify-content:center;font-size:31px}
+.mark.ok{background:var(--green-l);border:2px solid var(--green-b)}
+.mark.bad{background:var(--red-l);border:2px solid var(--red-b)}
+.sheet h3{font-size:17.5px;text-align:center;font-weight:800;margin-bottom:5px}
+.sheet .desc{font-size:12.5px;color:var(--muted);text-align:center;line-height:1.6;margin-bottom:14px}
+.sheet .box{background:#F8FAFD;border:1px solid var(--line2);border-radius:12px;padding:10px 11px;margin-bottom:12px}
+.sheet .box .kv .k{width:64px}
+.simcard{display:flex;gap:9px;align-items:center;padding:9px 0;border-bottom:1px dashed var(--line2);cursor:pointer}
+.simcard:last-child{border-bottom:none}
+.simcard:hover .tt{color:var(--blue)}
+.simcard .si{width:34px;height:34px;border-radius:10px;background:var(--blue-l);display:flex;align-items:center;justify-content:center;font-size:15px;flex:none}
+.simcard .tt{font-size:12.5px;font-weight:700;line-height:1.4}
+.simcard .ts{font-size:10.8px;color:var(--muted);margin-top:2px}
+.simcard .sp2{margin-left:auto;font-size:11px;font-weight:800;color:var(--red);white-space:nowrap}
+
+/* 聊天 */
+.msgs{padding:12px 12px 4px;display:flex;flex-direction:column;gap:12px}
+.msg{display:flex;gap:8px;max-width:88%}
+.msg .mav{width:34px;height:34px;border-radius:11px;flex:none;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;color:#fff}
+.bub{padding:9px 12px;border-radius:14px;font-size:13px;line-height:1.55;position:relative;word-break:break-word}
+.msg.l .bub{background:#fff;border:1px solid var(--line2);border-top-left-radius:5px;color:var(--ink2)}
+.msg.r{align-self:flex-end;flex-direction:row-reverse}
+.msg.r .bub{background:var(--blue);color:#fff;border-top-right-radius:5px;box-shadow:0 4px 12px -6px rgba(37,99,235,.8)}
+.msg .tmm{font-size:9.5px;color:var(--muted2);align-self:flex-end;margin-bottom:2px}
+.syscard{align-self:center;max-width:94%;background:#FFFBEB;border:1px solid var(--amber-b);border-radius:12px;padding:9px 11px;font-size:11.5px;
+  color:#92400E;line-height:1.6;text-align:center}
+.syscard.red{background:var(--red-l);border-color:var(--red-b);color:#991B1B}
+.syscard .st{display:block;font-size:10px;color:var(--muted2);margin-top:4px;font-weight:600}
+.daydiv{align-self:center;font-size:10.5px;color:var(--muted2);background:#EDF1F7;border-radius:99px;padding:2px 10px}
+.inputbar{flex:none;border-top:1px solid var(--line);background:#fff;padding:8px 10px;display:flex;align-items:center;gap:8px}
+.inputbar .pin{flex:1;height:38px;border-radius:10px;background:#F1F5F9;display:flex;align-items:center;padding:0 12px;font-size:12.5px;color:var(--muted2)}
+.inputbar .sq{width:38px;height:38px;border-radius:11px;background:#F1F5F9;display:flex;align-items:center;justify-content:center;font-size:17px;color:var(--ink2);cursor:pointer;flex:none}
+.quickrow{display:flex;gap:6px;padding:0 10px 8px;background:#fff;overflow-x:auto}
+.quickrow::-webkit-scrollbar{height:0}
+.quick{flex:none;font-size:11.5px;font-weight:700;color:var(--blue);background:var(--blue-l);border:1px solid var(--blue-b);border-radius:99px;padding:4px 10px;cursor:pointer}
+
+/* 钱包 */
+.wallet{background:linear-gradient(135deg,#2563EB,#1E40AF);border-radius:16px;margin:12px;padding:16px 15px;color:#fff;box-shadow:0 14px 30px -16px rgba(30,64,175,.9)}
+.wallet .wl{font-size:11.5px;opacity:.85;font-weight:600}
+.wallet .wv{font-size:31px;font-weight:800;letter-spacing:-.5px;font-variant-numeric:tabular-nums;margin:2px 0 10px}
+.wallet .wr{display:flex;gap:14px;border-top:1px solid rgba(255,255,255,.22);padding-top:10px}
+.wallet .wr div{flex:1}
+.wallet .wr .k{font-size:10.5px;opacity:.8}
+.wallet .wr .v2{font-size:14px;font-weight:800;font-variant-numeric:tabular-nums;margin-top:2px}
+.flow{display:flex;align-items:center;gap:10px;padding:11px 12px;background:#fff;border-bottom:1px solid var(--line2)}
+.flow .fic{width:34px;height:34px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:15px;flex:none}
+.flow .fb{flex:1;min-width:0}
+.flow .f1{font-size:13px;font-weight:700;display:flex;gap:6px;align-items:center}
+.flow .f2{font-size:10.8px;color:var(--muted2);margin-top:2px}
+.flow .amt{font-size:15px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
+.amt.in{color:var(--green)}.amt.out{color:var(--ink2)}.amt.frz{color:var(--amber)}
+
+/* 信誉分 */
+.scorehero{background:linear-gradient(150deg,#1E3A8A,#2563EB 55%,#3B82F6);margin:12px;border-radius:18px;padding:18px 16px 16px;color:#fff;
+  text-align:center;position:relative;overflow:hidden;box-shadow:0 16px 34px -18px rgba(30,58,138,.95)}
+.scorehero::after{content:"";position:absolute;right:-42px;top:-42px;width:150px;height:150px;border-radius:50%;background:rgba(255,255,255,.09)}
+.scorehero::before{content:"";position:absolute;left:-30px;bottom:-56px;width:120px;height:120px;border-radius:50%;background:rgba(255,255,255,.07)}
+.scorehero .num{font-size:60px;font-weight:800;line-height:1;letter-spacing:-2px;font-variant-numeric:tabular-nums}
+.scorehero .num small{font-size:16px;font-weight:700;opacity:.8;margin-left:3px;letter-spacing:0}
+.scorehero .lv{display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);
+  border-radius:99px;padding:4px 13px;font-size:13px;font-weight:800;margin-top:9px}
+.scorehero .tip{font-size:11.5px;opacity:.92;margin-top:10px;position:relative;z-index:1}
+.scorehero .pbar{height:7px;border-radius:99px;background:rgba(255,255,255,.25);margin:11px 2px 5px;position:relative;z-index:1}
+.scorehero .pbar i{display:block;height:100%;border-radius:99px;background:#fff;width:78%}
+.scorehero .plab{display:flex;justify-content:space-between;font-size:10px;opacity:.85;position:relative;z-index:1}
+.benefit{width:100%;border-collapse:separate;border-spacing:0;font-size:11.8px}
+.benefit th,.benefit td{padding:8px 6px;text-align:center;border-bottom:1px solid var(--line2)}
+.benefit th{font-size:11px;color:var(--muted);font-weight:700;background:#FAFCFF}
+.benefit td:first-child,.benefit th:first-child{text-align:left;padding-left:4px;color:var(--muted);font-weight:700}
+.benefit td.now{color:var(--blue-d);font-weight:800;background:var(--blue-l)}
+.benefit td.next{color:#6D28D9;font-weight:800;background:var(--purple-l)}
+.benefit td small{display:block;font-size:9.5px;font-weight:600;opacity:.75}
+.clog{display:flex;gap:10px;padding:10px 12px;background:#fff;border-bottom:1px solid var(--line2)}
+.clog .cnum{font-size:14.5px;font-weight:800;font-variant-numeric:tabular-nums;width:40px;flex:none;text-align:right}
+.cnum.up{color:var(--green)}.cnum.down{color:var(--red)}
+.clog .cb{flex:1;min-width:0}
+.clog .c1{font-size:12.5px;font-weight:700;line-height:1.4}
+.clog .c2{font-size:10.5px;color:var(--muted2);margin-top:2px;font-family:ui-monospace,Consolas,monospace}
+
+/* 认证 */
+.vcard{border:1px solid var(--line);border-radius:14px;padding:12px;margin:10px 12px;background:#fff;box-shadow:var(--sh);position:relative;overflow:hidden}
+.vcard.st-off{background:#FBFCFE;border-color:var(--line)}
+.vcard.st-ing{background:var(--amber-l);border-color:var(--amber-b)}
+.vcard.st-on{background:var(--green-l);border-color:var(--green-b)}
+.vcard .vh{display:flex;align-items:center;gap:9px}
+.vcard .vico{width:36px;height:36px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:18px;background:#fff;border:1px solid var(--line2);flex:none}
+.vcard .vt{font-size:14px;font-weight:800}
+.vcard .vs{font-size:11px;color:var(--muted);margin-top:2px}
+.vcard.st-ing .vt{color:#B45309}.vcard.st-on .vt{color:#15803D}
+.vchip{position:absolute;right:0;top:0;font-size:10px;font-weight:800;color:#fff;padding:3px 10px;border-bottom-left-radius:10px}
+.vchip.off{background:var(--muted2)}.vchip.ing{background:var(--amber)}.vchip.on{background:var(--green)}
+.privacy{background:#F8FAFD;border:1px solid var(--line);border-radius:12px;padding:11px 12px;margin:10px 12px;font-size:11.8px;line-height:1.65;color:var(--ink2)}
+.privacy .ph{font-size:12.5px;font-weight:800;margin-bottom:6px;display:flex;align-items:center;gap:6px}
+.privacy ul{list-style:none;display:flex;flex-direction:column;gap:5px}
+.privacy li{padding-left:13px;position:relative}
+.privacy li::before{content:"";position:absolute;left:2px;top:7px;width:4px;height:4px;border-radius:50%;background:var(--blue)}
+.sep-tag{display:inline-block;font-size:10px;font-weight:800;color:#fff;background:var(--red);border-radius:5px;padding:1px 6px;vertical-align:1px}
+
+/* 状态图例（屏 14） */
+.lggroup{margin:9px 12px 0;background:#fff;border:1px solid var(--line2);border-radius:13px;padding:10px 11px;box-shadow:var(--sh)}
+.lggroup .lgh{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:800;margin-bottom:8px}
+.lggroup .lgh .sw{width:14px;height:14px;border-radius:5px;flex:none}
+.lggroup .lgh .cnt{margin-left:auto;font-size:10.5px;color:var(--muted);font-weight:700}
+.sgrid{display:flex;flex-direction:column;gap:5px}
+.sitem{display:flex;align-items:center;gap:8px;font-size:11.5px;padding:5px 7px;border-radius:8px;background:#FAFCFF;border:1px solid var(--line2)}
+.sitem .dot{width:11px;height:11px;border-radius:4px;flex:none}
+.sitem .cn{font-weight:700;width:66px;flex:none}
+.sitem .cd{font-family:ui-monospace,Consolas,monospace;font-size:10px;color:var(--muted);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sitem .fn{font-size:9.5px;color:var(--muted2);font-weight:700;white-space:nowrap}
+
+/* 底部图例 */
+.legend{background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:var(--sh);padding:18px 20px;margin-top:34px}
+.legend h2{font-size:16px;margin-bottom:3px}
+.legend .lsub{font-size:12px;color:var(--muted);margin-bottom:14px}
+.lgcols{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:22px}
+.lgcols h4{font-size:13px;margin-bottom:9px;display:flex;align-items:center;gap:7px}
+.lgcols h4 .line{flex:1;height:1px;background:var(--line)}
+.chipwrap{display:flex;flex-wrap:wrap;gap:7px}
+.lchip{display:flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:9px;padding:6px 9px;background:#FCFDFF;font-size:11.8px}
+.lchip .sw{width:14px;height:14px;border-radius:5px;flex:none}
+.lchip .l1{font-weight:700}
+.lchip .l2{color:var(--muted);font-size:10.5px}
+.lchip code{font-size:10px}
+table.lgtab{width:100%;border-collapse:collapse;font-size:12px;margin-top:6px}
+table.lgtab th,table.lgtab td{padding:7px 8px;border-bottom:1px solid var(--line2);text-align:left}
+table.lgtab th{color:var(--muted);font-size:11px;background:#FAFCFF}
+.foot{margin-top:26px;font-size:11.5px;color:var(--muted2);text-align:center;line-height:1.8}
+
+/* 单屏模式 */
+body.single .gallery{display:block}
+body.single .screen{display:none;margin:0 auto}
+body.single .screen.on{display:flex}
+body.single .brief,body.single .legend{display:none}
+.floatnav{display:none}
+body.single .floatnav{display:flex;position:fixed;right:20px;bottom:22px;z-index:90;gap:8px;align-items:center;
+  background:rgba(255,255,255,.96);border:1px solid var(--line);border-radius:14px;padding:8px;box-shadow:0 12px 30px -14px rgba(15,23,42,.6)}
+body.single .floatnav .fb{width:42px;height:42px;border-radius:11px;border:1px solid var(--line);background:#fff;font-size:17px;cursor:pointer;font-family:inherit;color:var(--ink2)}
+body.single .floatnav .fb:hover{border-color:var(--blue);color:var(--blue);background:var(--blue-l)}
+body.single .floatnav .fl{font-size:12px;font-weight:800;color:var(--ink2);min-width:130px;text-align:center}
+.toast{position:fixed;left:50%;bottom:34px;transform:translate(-50%,20px);background:rgba(15,23,42,.93);color:#fff;font-size:12.5px;
+  padding:9px 16px;border-radius:11px;z-index:200;opacity:0;pointer-events:none;transition:.22s;max-width:80vw;text-align:center;line-height:1.5}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+@media (max-width:860px){
+  .gallery{gap:30px 18px}
+  .screen .duo{flex-direction:column;gap:30px}
+  .page{padding:0 10px 70px}
+  .topbar-in{padding:8px 12px 7px}
+}
+</style>
+</head>
+<body>
+
+<!-- ============================ 顶部工具栏 + 页面索引 ============================ -->
+<header class="topbar">
+  <div class="topbar-in">
+    <div class="tb-row">
+      <div class="tb-title"><span class="dot"></span>任务撮合平台 · 微信小程序端 · 可点击原型
+        <span class="pill">静态设计稿 14 屏</span>
+        <span class="pill gray">375×812</span>
+      </div>
+      <div class="tb-sp"></div>
+      <div class="tb-actions">
+        <button class="tbtn" id="btnSingle" title="只显示当前一屏，配合左右方向键翻屏">▣ 仅看单屏</button>
+        <button class="tbtn" id="btnHot" title="高亮所有可点击热区">◻ 显示热区</button>
+        <span class="counter" id="counter">屏 1 / 14</span>
+        <button class="tbtn" id="btnPrev" title="上一屏（←）">←</button>
+        <button class="tbtn" id="btnNext" title="下一屏（→）">→</button>
+      </div>
+    </div>
+    <nav class="idx" id="idx" aria-label="页面索引"></nav>
+  </div>
+</header>
+
+<main class="page">
+
+<!-- ============================ 设计说明 ============================ -->
+<section class="brief">
+  <h1>设计说明 · mp-weixin 微信小程序端</h1>
+  <div class="sub">
+    依据《2026-10-15-任务撮合平台-总体设计》§5.15.2 端能力矩阵、§5.15.3 信息架构与页面清单、§4.9.2 等级与权益矩阵、§4.10.3-4 任务形态与计酬方式、§4.11.2 任务状态全集。
+    端定位：<b>获客与轻操作端</b>（⛔ 不承担专业接单方的交付场景）。
+  </div>
+
+  <div class="brief-grid">
+    <div class="bcard">
+      <h3><span class="n">i</span>这是什么</h3>
+      <ul>
+        <li>本页是<b>静态 HTML 原型（设计稿）</b>，不是可运行工程，也不接任何真实接口/数据。</li>
+        <li>单文件完全自包含：所有 CSS/JS 内联，⛔ 无任何外部 CDN / 字体 / 图片引用，<b>断网双击即可打开</b>。</li>
+        <li>图标全部用 <b>emoji 或纯 CSS 图形</b>绘制；价格、距离、时间、订单号均为<b>拟真示例数据</b>。</li>
+        <li>每屏都是真实尺寸的 <b>375 × 812</b> 手机框：状态栏 + 导航栏 + 内容区 + 底部 Tab 栏。</li>
+        <li>点击带蓝色描边的元素可跳转到对应屏（点顶部「显示热区」可看全部热区）。</li>
+      </ul>
+    </div>
+
+    <div class="bcard warn">
+      <h3><span class="n">!</span>小程序的三个硬限制（§5.15.2）</h3>
+      <ul>
+        <li><b>① 不能大文件分片</b>：<code>wx.uploadFile</code> 不支持分片与断点续传 → 本原型在<b>屏 5 提交报价</b>、<b>屏 8 交付提交</b> 显式写死「单文件 ≤20MB，超大交付物请用电脑端」，并给出「复制电脑端链接」的迂回方案。</li>
+        <li><b>② 不能系统级静默推送</b>：只有<b>订阅消息</b>，一次性授权、每次都要用户主动订阅、有模板与次数限制 → 本原型在<b>屏 4A 抢单成功</b>弹层内做「订阅开奖/中标通知」的<b>场景化请求</b>（有动力的时刻才请求）。</li>
+        <li><b>③ 不能使用支付宝</b>：小程序内仅 <code>wx.requestPayment</code>（微信 JSAPI）→ 本原型<b>屏 5</b>（报价托管）与<b>屏 11 钱包</b>标注「仅支持微信支付」，提现引导至 App / 电脑端。</li>
+        <li>另两条影响设计的限制：<b>WS 全局最多 2 条连接、切后台断开</b>（屏 9/10 文案提示「回到前台自动补拉离线消息」）；<b>定位需授权、可降级</b>（屏 3 签到、屏 13 隐私说明）。</li>
+      </ul>
+    </div>
+
+    <div class="bcard ok">
+      <h3><span class="n">✓</span>本轮覆盖（对照 §5.15.3 页面清单）</h3>
+      <ul>
+        <li>首页：任务流 ✅（屏 1）· 任务详情 ✅（屏 2 竞拍线上 / 屏 3 抢单线下）</li>
+        <li>任务（接单）：我的报价 ✅（屏 6）· 我的接单 ✅（屏 7）· 抢单 ✅（屏 4 成功/失败两态）· 交付提交 ✅（屏 8）</li>
+        <li>消息：会话列表 ✅（屏 9）· 聊天 ✅（屏 10）· 系统通知 ✅（屏 9 顶部入口，仅入口态）</li>
+        <li>我的：钱包简版 ✅（屏 11）· 信誉分中心 ✅（屏 12）· 实名认证 ✅（屏 13）</li>
+        <li>设计辅助：状态图例页 ✅（屏 14，非真实页面）</li>
+        <li>⛔ <b>未覆盖</b>：搜索与筛选页、我的发布（发单方视角）、设置、系统通知详情、发单表单；以及 App 独有能力（扫码签到实拍、离线草稿、批量报价、指纹登录）。</li>
+      </ul>
+    </div>
+
+    <div class="bcard">
+      <h3><span class="n">#</span>操作方式</h3>
+      <ul>
+        <li>顶部索引条：点任意「屏 N」跳转（锚点），滚动时自动高亮当前屏。</li>
+        <li><b>仅看单屏</b>：只显示当前一屏，可用 <span class="kbd">←</span> <span class="kbd">→</span> 方向键翻屏，右下角也有翻屏按钮。</li>
+        <li>热区跳转示例：屏 1 任务卡 → 屏 2/3；屏 3「立即抢单」→ 屏 4；屏 2「立即报价」→ 屏 5；屏 5「提交报价」→ 屏 6；屏 7 订单卡 → 屏 8；屏 9 会话 → 屏 10。</li>
+        <li>非跳转按钮（支付、上传、人脸核身等）点击后只弹提示条，说明「静态原型不实现该动作」。</li>
+        <li>手机框内容可<b>内部滚动</b>（真实小程序页面亦如此），滚轮悬停在框内即可。</li>
+      </ul>
+      <div class="hintline">配色：主色 <b>#2563EB</b> · 成功 <b>#16A34A</b> · 警示 <b>#F59E0B</b> · 危险 <b>#DC2626</b>；信誉等级徽章 🔵 良好（78 分）为贯穿全局的示例账号。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ 屏幕画廊 ============================ -->
+<div class="gallery" id="gallery">
+
+<!-- ==================== 屏 1 首页 / 任务流 ==================== -->
+<section class="screen" id="s1" data-name="首页 / 任务流">
+  <div class="phone">
+    <div class="sbar"><span>9:41</span><span class="island"></span>
+      <span class="sb-r"><span class="g5">5G</span><span class="bars"><i></i><i></i><i></i><i></i></span><span class="batt"><i></i></span></span>
+    </div>
+    <div class="hd">
+      <div class="ic plain" data-toast="静态原型：切换城市/定位（需 wx.getLocation 授权，可降级为手动选择地区）">📍</div>
+      <div class="t" style="font-size:14px;text-align:left;padding-left:2px">郑州 · 中原区 <span class="xs mut">（已授权定位）</span></div>
+      <div class="ic" data-toast="静态原型：扫一扫（小程序独有能力，Web 端无此入口）">⌗</div>
+      <div class="ic" data-goto="s9" title="跳转：消息列表">🔔</div>
+    </div>
+
+    <div class="vp">
+      <div class="searchbar">
+        <div class="sinput" data-toast="静态原型：搜索与筛选页未在本轮覆盖（§5.15.3「搜索与筛选」）">🔍 搜索任务 / 技能 / 关键词</div>
+        <div class="loc">按距离 ▾</div>
+      </div>
+
+      <div class="cats">
+        <span class="cat on">全部</span>
+        <span class="cat" data-toast="静态原型：分类筛选（开发）">开发</span>
+        <span class="cat" data-toast="静态原型：分类筛选（设计）">设计</span>
+        <span class="cat" data-toast="静态原型：分类筛选（文案）">文案</span>
+        <span class="cat" data-toast="静态原型：分类筛选（跑腿）">跑腿</span>
+        <span class="cat" data-toast="静态原型：分类筛选（生活服务）">生活服务</span>
+        <span class="cat" data-toast="静态原型：分类筛选（更多）">更多</span>
+      </div>
+
+      <article class="tcard" data-goto="s2" title="跳转：屏 2 任务详情（竞拍类·线上）">
+        <div class="th">
+          <h4>开发一个小程序商城后台</h4>
+          <span class="tb">¥3,000-5,000</span>
+        </div>
+        <div class="tags">
+          <span class="tag t-purple">竞拍 BID</span>
+          <span class="tag t-blue">线上 ONLINE</span>
+          <span class="tag t-green">已托管</span>
+          <span class="tag t-gray">可远程</span>
+        </div>
+        <p class="td">小程序端已定稿，缺后台。需商品/订单/会员/优惠券四大模块，对接微信支付 V3，要源码 + 部署文档。</p>
+        <div class="tf">
+          <span class="m">📍 2.1km</span>
+          <span class="m">⏳ 剩余 2天4小时</span>
+          <span class="m">👥 12 人已报价</span>
+          <span class="credit c-blue" style="margin-left:auto">🔵 良好 78</span>
+        </div>
+        <span class="go">查看详情 →</span>
+      </article>
+
+      <article class="tcard" data-toast="静态原型：该任务为竞拍类，本轮仅画「开发一个小程序商城后台」的详情页（屏 2）">
+        <div class="th">
+          <h4>品牌 VI 视觉设计与全套物料</h4>
+          <span class="tb">¥1,200-2,000</span>
+        </div>
+        <div class="tags">
+          <span class="tag t-purple">竞拍 BID</span>
+          <span class="tag t-blue">线上 ONLINE</span>
+          <span class="tag t-amber">未托管</span>
+        </div>
+        <p class="td">新消费茶饮品牌，需要 logo、主视觉、包装袋与 6 张门店海报；需提供 AI/PSD 源文件。</p>
+        <div class="tf">
+          <span class="m">📍 3.4km</span>
+          <span class="m">⏳ 剩余 8 小时</span>
+          <span class="m">👥 27 人已报价</span>
+          <span class="credit c-amber" style="margin-left:auto">🟡 一般 66</span>
+        </div>
+      </article>
+
+      <article class="tcard" data-goto="s3" title="跳转：屏 3 任务详情（抢单类·线下）">
+        <div class="th">
+          <h4>周五下午会展中心物料搬运（3 小时）</h4>
+          <span class="tb">¥180</span>
+        </div>
+        <div class="tags">
+          <span class="tag t-blue">一口价 FIXED</span>
+          <span class="tag t-green">抢单 GRAB</span>
+          <span class="tag t-amber">线下 OFFLINE</span>
+          <span class="tag t-red">需签到</span>
+        </div>
+        <p class="td">约 60 箱宣传物料从 B1 仓库搬至 3 楼 305 展位，现场提供手推车，3 小时内完成。</p>
+        <div class="tf">
+          <span class="m">📍 距我 4.2km</span>
+          <span class="m">⏳ 剩余 1天2小时</span>
+          <span class="m">🕐 10-17 13:00-16:00</span>
+          <span class="credit c-amber" style="margin-left:auto">🟡 一般 66</span>
+        </div>
+        <span class="go">立即抢单 →</span>
+      </article>
+
+      <article class="tcard" data-toast="静态原型：按量计酬（BY_QUANTITY）任务的详情页未在本轮绘制">
+        <div class="th">
+          <h4>公众号长文 3 篇 · AI 行业观察</h4>
+          <span class="tb">¥120/篇 ×3</span>
+        </div>
+        <div class="tags">
+          <span class="tag t-blue">按量 BY_QUANTITY</span>
+          <span class="tag t-blue">线上 ONLINE</span>
+          <span class="tag t-green">已托管</span>
+        </div>
+        <p class="td">每篇 1800-2500 字，需有真实案例引用；可分 3 批交付、按批结算（每交付 1 篇先结 1 篇）。</p>
+        <div class="tf">
+          <span class="m">📍 线上</span>
+          <span class="m">⏳ 剩余 5 小时</span>
+          <span class="m">👥 6 人已报价</span>
+          <span class="credit c-green" style="margin-left:auto">🟢 优秀 85</span>
+        </div>
+      </article>
+
+      <article class="tcard" data-toast="静态原型：HYBRID（线上+线下）任务的详情页未在本轮绘制">
+        <div class="th">
+          <h4>旧房墙面翻新刷漆 · 约 60㎡</h4>
+          <span class="tb">¥800-1,200</span>
+        </div>
+        <div class="tags">
+          <span class="tag t-purple">竞拍 BID</span>
+          <span class="tag t-amber">线下 OFFLINE</span>
+          <span class="tag t-amber">未托管</span>
+          <span class="tag t-gray">可报销差旅</span>
+        </div>
+        <p class="td">两室一厅，铲墙皮 + 两遍腻子 + 两遍乳胶漆，材料由发单方提供，工期 3 天内。</p>
+        <div class="tf">
+          <span class="m">📍 6.8km</span>
+          <span class="m">⏳ 剩余 3天</span>
+          <span class="m">👥 4 人已报价</span>
+          <span class="credit c-gray" style="margin-left:auto">⚪ 较差 52</span>
+        </div>
+      </article>
+
+      <div class="card" style="text-align:center;padding:14px">
+        <div class="xs mut">—— 已加载 5 条，下拉刷新（游标分页，§5.15.11）——</div>
+        <div class="xs mut mt6">当前账号：良好 🔵 78 分 · 进行中 2/5 · 排序权重 ×1.3</div>
+      </div>
+    </div>
+
+    <div class="tabbar">
+      <div class="tabrow">
+        <div class="tab on" data-goto="s1"><span class="ti">🏠</span>首页</div>
+        <div class="tab" data-goto="s6"><span class="ti">📋</span>任务</div>
+        <div class="tab" data-goto="s9"><span class="ti">💬</span>消息<span class="bdg">3</span></div>
+        <div class="tab" data-goto="s11"><span class="ti">👤</span>我的</div>
+      </div>
+      <div class="hi"><i></i></div>
+    </div>
+  </div>
+  <div class="cap">
+    <span class="no">屏 1</span>
+    <div class="nm">首页 / 任务流</div>
+    <div class="rt">pages/home/index</div>
+    <div class="sec">搜索框 · 分类横滑 · 任务卡（预算/形态标签/距我 km/剩余时间/发单人信誉徽章）· 底部 4 Tab</div>
+  </div>
+</section>
+
+<!-- ==================== 屏 2 任务详情（竞拍类·线上） ==================== -->
+<section class="screen" id="s2" data-name="任务详情（竞拍类·线上）">
+  <div class="phone">
+    <div class="sbar"><span>9:41</span><span class="island"></span>
+      <span class="sb-r"><span class="g5">5G</span><span class="bars"><i></i><i></i><i></i><i></i></span><span class="batt"><i></i></span></span>
+    </div>
+    <div class="hd">
+      <div class="ic" data-goto="s1" title="返回：首页">←</div>
+      <div class="t">任务详情</div>
+      <div class="ic" data-toast="静态原型：分享 / 收藏（右上角）">⋯</div>
+    </div>
+
+    <div class="vp">
+      <div class="card">
+        <h4 style="font-size:16.5px;font-weight:800;line-height:1.42">开发一个小程序商城后台</h4>
+        <div class="tags mt8">
+          <span class="tag t-purple">竞拍 BID</span>
+          <span class="tag t-blue">线上 ONLINE</span>
+          <span class="tag t-green">已托管 ¥3,800</span>
+          <span class="tag t-blue">开发 / 小程序</span>
+        </div>
+        <div class="hr"></div>
+        <div class="row sp">
+          <div>
+            <div class="xs mut">预算区间（发单方设定）</div>
+            <div style="font-size:23px;font-weight:800;color:var(--red);font-variant-numeric:tabular-nums;margin-top:1px">¥3,000 - 5,000</div>
+          </div>
+          <div style="text-align:right">
+            <div class="xs mut">已有报价</div>
+            <div style="font-size:23px;font-weight:800;color:var(--blue);font-variant-numeric:tabular-nums;margin-top:1px">12 <span style="font-size:12px">人</span></div>
+          </div>
+        </div>
+        <div class="mt10" style="background:var(--amber-l);border:1px solid var(--amber-b);border-radius:10px;padding:8px 10px">
+          <div class="row sp"><span class="xs b" style="color:#92400E">⏳ 距离报价截止</span>
+            <span class="timer warn" style="font-size:13px">2 天 04:12:38</span></div>
+          <div class="xs mt6" style="color:#92400E">截止后进入「待选标 PENDING_SELECT」，发单方在 3 天内选定中标方。</div>
+        </div>
+      </div>
+
+      <div class="sechd"><span class="bar"></span>交付要求<span class="r">发单方填写</span></div>
+      <div class="card tight" style="font-size:12.5px;line-height:1.75;color:var(--ink2)">
+        1）小程序端已定稿，本次只做<b>后台 + 接口</b>；技术栈不限，需提供可运行源码 + 数据库脚本。<br>
+        2）必须含<b>商品 / 订单 / 会员 / 优惠券</b>四大模块，管理端用 Vue3 + Element Plus。<br>
+        3）需对接<b>微信支付 V3</b>，并在测试环境跑通一笔下单 + 一笔退款。<br>
+        4）交付物：源码仓库（只读权限保留 30 天）+ 部署文档（PDF）。<br>
+        5）沟通时间：工作日 19:00 后，全程站内沟通，⛔ 不接受脱离平台交易。
+      </div>
+
+      <div class="sechd"><span class="bar" style="background:var(--red)"></span>验收标准<span class="r">3 条 · 含 1 条必过</span></div>
+      <div class="card tight">
+        <div class="std must">
+          <span class="idx">1</span>
+          <span class="tx"><span class="must-tag">必过</span>四大模块功能在测试环境<b>全部可走通</b>，无 P0 / P1 缺陷（含权限、并发下单、超卖拦截）。</span>
+        </div>
+        <div class="std">
+          <span class="idx">2</span>
+          <span class="tx">管理端在 Chrome 最新版<b>无控制台报错</b>，首屏加载 ≤ 3s（本地千兆环境）。</span>
+        </div>
+        <div class="std">
+          <span class="idx">3</span>
+          <span class="tx">提供部署文档，按文档可在<b>全新服务器 4 小时内</b>完成部署并跑通下单流程。</span>
+        </div>
+        <div class="notice amber" style="margin:10px 0 0">
+          <span class="ni">⚠️</span>
+          <div>第 1 条标记为<b>「必过」</b>：若该条不满足，发单方可直接驳回，且<b>不计入返工轮次</b>（最多 2 轮）。</div>
+        </div>
+      </div>
+
+      <div class="sechd"><span class="bar"></span>知识产权归属</div>
+      <div class="card tight" style="font-size:12.5px;line-height:1.7;color:var(--ink2)">
+        验收通过并结算后，本项目<b>定制代码与文档的著作权归发单方所有</b>；接单方保留通用组件、脚手架与工具库的复用权，
+        ⛔ 不得将本项目定制代码、数据与设计稿用于第三方或公开演示。侵权争议提交平台裁决。
+      </div>
+
+      <div class="sechd"><span class="bar"></span>发单方</div>
+      <div class="card tight">
+        <div class="row">
+          <div class="av avatar-blue" style="width:40px;height:40px;border-radius:13px;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;color:#fff">王</div>
+          <div style="flex:1">
+            <div class="row" style="gap:6px"><span class="b" style="font-size:13.5px">王工</span>
+              <span class="credit c-blue">🔵 良好 78</span></div>
+            <div class="xs mut mt6">已实名 ✅ · 已发单 23 · 好评率 96% · 结算及时率 100%</div>
+          </div>
+          <button class="btn ghost xs" data-goto="s10" title="跳转：聊天会话页">聊一聊</button>
+        </div>
+      </div>
+
+      <div class="notice blue">
+        <span class="ni">🛡️</span>
+        <div>资金已进入平台托管，验收通过后自动分账；出现争议可在结算前发起<b>争端工单</b>（§4.11.3）。<br>
+        <span class="xs">小程序内仅支持微信支付；⛔ 不支持支付宝。大文件交付请用电脑端。</span></div>
+      </div>
+      <div style="height:6px"></div>
+    </div>
+
+    <div class="bbar">
+      <div class="col" style="flex:0 0 62px">
+        <button class="btn ghost xs" style="width:100%;height:44px" data-toast="静态原型：收藏（小程序本地缓存 + 服务端同步）">☆ 收藏</button>
+      </div>
+      <div class="bwrap">
+        <button class="btn" data-goto="s5" title="跳转：屏 5 提交报价">立即报价</button>
+      </div>
+    </div>
+    <div class="hi" style="background:#fff"><i></i></div>
+  </div>
+  <div class="cap">
+    <span class="no">屏 2</span>
+    <div class="nm">任务详情（竞拍类 · 线上）</div>
+    <div class="rt">pages/task/detail?id=…（分包）</div>
+    <div class="sec">预算区间 · 12 人报价 · 交付要求 · 验收标准 3 条（1 条必过）· 知识产权 · 发单方信誉 · 底部「立即报价」→ 屏 5</div>
+  </div>
+</section>
+
+<!-- ==================== 屏 3 任务详情（抢单类·线下） ==================== -->
+<section class="screen" id="s3" data-name="任务详情（抢单类·线下）">
+  <div class="phone">
+    <div class="sbar"><span>9:41</span><span class="island"></span>
+      <span class="sb-r"><span class="g5">5G</span><span class="bars"><i></i><i></i><i></i><i></i></span><span class="batt"><i></i></span></span>
+    </div>
+    <div class="hd">
+      <div class="ic" data-goto="s1" title="返回：首页">←</div>
+      <div class="t">任务详情</div>
+      <div class="ic" data-toast="静态原型：分享给微信好友">⋯</div>
+    </div>
+
+    <div class="vp">
+      <div class="card">
+        <h4 style="font-size:16.5px;font-weight:800;line-height:1.42">周五下午会展中心物料搬运（3 小时）</h4>
+        <div class="tags mt8">
+          <span class="tag t-blue">一口价 FIXED</span>
+          <span class="tag t-green">抢单 GRAB</span>
+          <span class="tag t-amber">线下 OFFLINE</span>
+          <span class="tag t-red">需到场签到</span>
+        </div>
+        <div class="hr"></div>
+        <div class="row sp">
+          <div>
+            <div class="xs mut">任务金额（一口价）</div>
+            <div style="font-size:25px;font-weight:800;color:var(--red);font-variant-numeric:tabular-nums">¥180.00</div>
+          </div>
+          <div style="text-align:right">
+            <div class="xs mut">预计实得（良好 −0.5%）</div>
+            <div style="font-size:17px;font-weight:800;color:var(--green);font-variant-numeric:tabular-nums">¥170.10</div>
+            <div class="xs mut">完工后当日结算</div>
+          </div>
+        </div>
+        <div class="notice green" style="margin:10px 0 0"><span class="ni">🔒</span>
+          <div>任务金额<b>已被发单方托管</b>，抢单成功后资金即冻结，验收通过自动分账。</div></div>
+      </div>
+
+      <div class="sechd"><span class="bar" style="background:var(--amber)"></span>服务地点<span class="r">线下任务必填（含经纬度）</span></div>
+      <div class="card tight">
+        <div class="mapbox">
+          <span class="rd rd1"></span><span class="rd rd2"></span>
+          <span class="pin"></span><span class="me"></span>
+          <span class="lb">📍 郑州国际会展中心 1 号门</span>
+          <span class="lb2">距我 4.2km · 骑行约 18 分钟</span>
+        </div>
+        <div class="kv mt10"><span class="k">详细地址</span><span class="v">郑州市郑东新区商务内环路 1 号 · 会展中心 1 号门 B1 仓库集合</span></div>
+        <div class="kv"><span class="k">距我</span><span class="v hl">4.2km</span></div>
+        <div class="kv"><span class="k">位置来源</span><span class="v">发单方地图选点（经纬度已写入，误差 ≤50m）</span></div>
+        <div class="xs mut mt8">⚠️ 位置信息仅用于「附近推荐 + 到场签到」，⛔ 不做后台持续采集（§5.15.9）。</div>
+      </div>
+
+      <div class="sechd"><span class="bar" style="background:var(--amber)"></span>服务时间段</div>
+      <div class="card tight">
+        <div class="kv"><span class="k">日期</span><span class="v">2026-10-17（周五）</span></div>
+        <div class="kv"><span class="k">时段</span><span class="v hl">13:00 - 16:00（3 小时）</span></div>
+        <div class="kv"><span class="k">到场要求</span><span class="v">12:45 前到达 B1 仓库集合点</span></div>
+        <div class="kv"><span class="k">超时规则</span><span class="v">超 30 分钟未完成，双方协商差价；未协商一致可申请平台介入</span></div>
+      </div>
+
+      <div class="sechd"><span class="bar"></span>签到要求</div>
+      <div class="card tight">
+        <div class="row sp"><span class="b" style="font-size:13px">✅ 需到场签到</span><span class="tag t-red">GPS + 扫码双校验</span></div>
+        <div class="kv mt8"><span class="k">签到方式</span><span class="v">扫发单方出示的二维码 + 定位校验（误差 ≤200m）</span></div>
+        <div class="kv"><span class="k">签退</span><span class="v">完工后拍 1 张现场照片 + 签退（自动写入履约证据）</span></div>
+        <div class="notice amber" style="margin:10px 0 0"><span class="ni">📍</span>
+          <div>需授权位置权限。若拒绝授权：可用<b>发单方代签 + 现场照片</b>兜底，但将失去「附近任务」推荐（可降级，§5.15.9）。</div></div>
+      </div>
+
+      <div class="sechd"><span class="bar"></span>工作内容</div>
+      <div class="card tight" style="font-size:12.5px;line-height:1.75;color:var(--ink2)">
+        约 60 箱宣传物料（单箱 ≤15kg）从 B1 仓库搬运至 3 楼 305 展位，现场提供 2 台手推车与货梯。
+        <br>需 1 人完成，着装无要求，现场联系人：刘经理 138****6621（平台虚拟号）。
+      </div>
+
+      <div class="sechd"><span class="bar"></span>发单方</div>
+      <div class="card tight">
+        <div class="row">
+          <div style="width:40px;height:40px;border-radius:13px;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;color:#fff" class="avatar-amber">刘</div>
+          <div style="flex:1">
+            <div class="row" style="gap:6px"><span class="b" style="font-size:13.5px">刘经理</span><span class="credit c-amber">🟡 一般 66</span></div>
+            <div class="xs mut mt6">已实名 ✅ · 已发单 7 · 好评率 91% · 平均结算 6 小时</div>
+          </div>
+          <button class="btn ghost xs" data-goto="s10" title="跳转：聊天会话页">聊一聊</button>
+        </div>
+      </div>
+
+      <div class="notice red">
+        <span class="ni">⚡</span>
+        <div><b>抢单为即时先到先得</b>：点击后系统以服务端时间为准，抢中即生成订单并冻结资金；
+        未抢中将返回 3 条相似任务推荐（见屏 4B）。请确认能按时到场再抢。</div>
+      </div>
+      <div style="height:6px"></div>
+    </div>
+
+    <div class="bbar">
+      <div class="col">
+        <span class="xs mut">一口价 · 已托管</span>
+        <span class="big">¥180.00</span>
+      </div>
+      <div class="bwrap">
+        <button class="btn green" data-goto="s4" title="跳转：屏 4 抢单结果弹层">立即抢单</button>
+      </div>
+    </div>
+    <div class="hi" style="background:#fff"><i></i></div>
+  </div>
+  <div class="cap">
+    <span class="no">屏 3</span>
+    <div class="nm">任务详情（抢单类 · 线下）</div>
+    <div class="rt">pages/task/detail?id=…（同一页，OFFLINE 分支）</div>
+    <div class="sec">服务地点（距我 4.2km）· 服务时间段 13:00-16:00 · 需签到标识 · 底部「立即抢单」→ 屏 4</div>
+  </div>
+</section>
+
+<!-- ==================== 屏 4 抢单结果弹层（两态并排） ==================== -->
+<section class="screen" id="s4" data-name="抢单结果弹层（成功 / 失败两态）">
+  <div class="duo" style="display:flex;gap:34px;flex-wrap:wrap;justify-content:center;align-items:flex-start">
+
+    <!-- 4A 成功态 -->
+    <div style="display:flex;flex-direction:column;align-items:center;gap:11px">
+      <div class="phone">
+        <div class="sbar"><span>9:41</span><span class="island"></span>
+          <span class="sb-r"><span class="g5">5G</span><span class="bars"><i></i><i></i><i></i><i></i></span><span class="batt"><i></i></span></span>
+        </div>
+        <div class="hd">
+          <div class="ic" data-goto="s3" title="返回：屏 3">←</div>
+          <div class="t">任务详情</div>
+          <div class="ic">⋯</div>
+        </div>
+        <div class="vp">
+          <div class="card">
+            <div class="tags">
+              <span class="tag t-blue">一口价 FIXED</span>
+              <span class="tag t-green">抢单 GRAB</span>
+              <span class="tag t-amber">线下 OFFLINE</span>
+            </div>
+            <h4 style="font-size:16px;font-weight:800;margin-top:9px">周五下午会展中心物料搬运（3 小时）</h4>
+            <div class="kv mt8"><span class="k">服务地点</span><span class="v">会展中心 1 号门 · 距我 4.2km</span></div>
+            <div class="kv"><span class="k">服务时间</span><span class="v">2026-10-17 13:00-16:00</span></div>
+            <div class="kv"><span class="k">任务金额</span><span class="v hl">¥180.00（已托管）</span></div>
+          </div>
+          <div class="ocard">
+            <div class="oh"><span>刚刚抢单成功</span><span class="no" style="margin-left:auto">TK20261017003</span></div>
+            <div class="ob">
+              <div class="row sp"><span class="b" style="font-size:13.5px">状态：待开始</span><span class="tag t-blue">PENDING_START</span></div>
+              <div class="prog mt8"><i style="width:12%"></i></div>
+              <div class="xs mut mt6">资金已冻结 ¥180.00 · 需在 10-17 12:45 前到达并签到</div>
+            </div>
+          </div>
+        </div>
+        <div class="bbar"><button class="btn" data-goto="s7" title="跳转：屏 7 我的接单">查看订单</button></div>
+        <div class="hi" style="background:#fff"><i></i></div>
+
+        <!-- 弹层：成功态 -->
+        <div class="ovl">
+          <div class="sheet">
+            <div class="mark ok">✅</div>
+            <h3>抢单成功</h3>
+            <div class="desc">你已抢到该任务，资金已进入托管冻结</div>
+            <div class="box">
+              <div class="kv"><span class="k">订单号</span><span class="v" style="font-family:ui-monospace,Consolas,monospace">TK20261017003</span></div>
+              <div class="kv"><span class="k">任务</span><span class="v">会展中心物料搬运（3 小时）</span></div>
+              <div class="kv"><span class="k">金额</span><span class="v hl">¥180.00</span></div>
+              <div class="kv"><span class="k">服务时间</span><span class="v">2026-10-17（周五）13:00-16:00</span></div>
+              <div class="kv"><span class="k">签到</span><span class="v">需到场签到（GPS + 扫码）</span></div>
+            </div>
+
+            <div class="notice blue" style="margin:0 0 12px">
+              <span class="ni">🔔</span>
+              <div><b>订阅「中标与开奖通知」？</b><br>
+              小程序不能系统级静默推送，只有<b>一次性订阅消息</b>；现在订阅，才能在任务变更/验收时收到微信服务通知。
+              <span class="xs">（在用户有动力的时刻请求授权 —— §5.15.6）</span></div>
+              <div class="nt"><button class="btn xs" data-toast="静态原型：调用 wx.requestSubscribeMessage（一次性订阅，每次都要用户主动授权）">✅ 允许订阅</button>
+              <button class="btn ghost xs" data-toast="静态原型：拒绝后仍可在「我的 → 设置 → 通知偏好」重新订阅">暂不</button></div>
+            </div>
+
+            <button class="btn" data-goto="s7" title="跳转：屏 7 我的接单">查看订单</button>
+            <button class="btn ghost mt8" data-goto="s1" title="跳转：屏 1 首页">返回任务大厅</button>
+          </div>
+        </div>
+      </div>
+      <div class="cap">
+        <span class="no">屏 4A</span>
+        <div class="nm">抢单结果 · 成功态</div>
+        <div class="rt">半屏弹层 → 跳转订单</div>
+        <div class="sec">含「订阅消息」场景化授权请求（限制 ② 的设计落点）；主按钮 → 屏 7</div>
+      </div>
+    </div>
+
+    <!-- 4B 失败态 -->
+    <div style="display:flex;flex-direction:column;align-items:center;gap:11px">
+      <div class="phone">
+        <div class="sbar"><span>9:41</span><span class="island"></span>
+          <span class="sb-r"><span class="g5">5G</span><span class="bars"><i></i><i></i><i></i><i></i></span><span class="batt"><i></i></span></span>
+        </div>
+        <div class="hd">
+          <div class="ic" data-goto="s3" title="返回：屏 3">←</div>
+          <div class="t">任务详情</div>
+          <div class="ic">⋯</div>
+        </div>
+        <div class="vp">
+          <div class="card">
+            <div class="tags">
+              <span class="tag t-blue">一口价 FIXED</span>
+              <span class="tag t-green">抢单 GRAB</span>
+              <span class="tag t-amber">线下 OFFLINE</span>
+            </div>
+            <h4 style="font-size:16px;font-weight:800;margin-top:9px">周五下午会展中心物料搬运（3 小时）</h4>
+            <div class="kv mt8"><span class="k">服务地点</span><span class="v">会展中心 1 号门 · 距我 4.2km</span></div>
+            <div class="kv"><span class="k">任务金额</span><span class="v">¥180.00</span></div>
+          </div>
+          <div class="notice amber"><span class="ni">⏳</span>
+            <div>该任务已被他人抢走，抢单按钮已置灰。你可以看看下面 3 条相似任务。</div></div>
+        </div>
+        <div class="bbar"><button class="btn" disabled>已被抢走</button></div>
+        <div class="hi" style="background:#fff"><i></i></div>
+
+        <!-- 弹层：失败态 -->
+        <div class="ovl">
+          <div class="sheet">
+            <div class="mark bad">⚠️</div>
+            <h3>手慢了，已被他人抢走</h3>
+            <div class="desc">该任务在 12:04:37 被「张**」抢先抢到<br>（服务端时间为准，抢单不可排队）</div>
+
+            <div class="sechd" style="margin:2px 0 4px"><span class="bar"></span>相似任务推荐<span class="r">按距离 / 金额 / 时间接近排序</span></div>
+            <div class="box" style="padding:6px 11px">
+              <div class="simcard" data-toast="静态原型：抢相似任务（同屏 3 条为推荐位，实际跳转同抢单流程）">
+                <span class="si">📦</span>
+                <div><div class="tt">周六上午展馆物料整理（2 小时）</div>
+                  <div class="ts">一口价 · 线下 · 距我 3.8km · 10-18 09:00-11:00</div></div>
+                <span class="sp2">¥150</span>
+              </div>
+              <div class="simcard" data-toast="静态原型：抢相似任务">
+                <span class="si">🚚</span>
+                <div><div class="tt">会展中心撤展搬运（4 小时）</div>
+                  <div class="ts">一口价 · 线下 · 距我 4.5km · 10-17 17:00-21:00</div></div>
+                <span class="sp2">¥240</span>
+              </div>
+              <div class="simcard" data-toast="静态原型：抢相似任务">
+                <span class="si">🛋️</span>
+                <div><div class="tt">写字楼办公家具搬运（半天）</div>
+                  <div class="ts">竞拍 · 线下 · 距我 6.1km · 10-19 全天</div></div>
+                <span class="sp2">¥320</span>
+              </div>
+            </div>
+
+            <div class="notice blue" style="margin:0 0 12px"><span class="ni">💡</span>
+              <div>想更快抢到？提升信誉分到 <b>优秀 🟢（80 分）</b> 可解锁「含高价单」抢单资格，排序权重 ×1.6。
+              <span class="xs">（当前 🔵 良好 78 · ×1.3）</span></div>
+              <div class="nt"><button class="btn xs" data-goto="s12" title="跳转：屏 12 信誉分中心">查看信誉分</button></div>
+            </div>
+
+            <button class="btn" data-goto="s1" title="跳转：屏 1 首页">返回任务大厅</button>
+            <button class="btn ghost mt8" data-toast="静态原型：开启「新任务提醒」需订阅消息（限制 ②）">开启新任务提醒</button>
+          </div>
+        </div>
+      </div>
+      <div class="cap">
+        <span class="no">屏 4B</span>
+        <div class="nm">抢单结果 · 失败态</div>
+        <div class="rt">半屏弹层 → 相似推荐</div>
+        <div class="sec">「已被他人抢走」+ 3 条相似任务推荐 · 底部按钮置灰 · 引导信誉分</div>
+      </div>
+    </div>
+
+  </div>
+  <div class="cap" style="margin-top:2px">
+    <span class="no">屏 4</span>
+    <div class="nm">抢单结果弹层（成功态 4A / 失败态 4B 并排）</div>
+    <div class="sec">两态共用一个半屏弹层组件；成功 → 屏 7 订单工作台，失败 → 屏 1 任务大厅</div>
+  </div>
+</section>
+
+<!-- ==================== 屏 5 提交报价 ==================== -->
+<section class="screen" id="s5" data-name="提交报价">
+  <div class="phone">
+    <div class="sbar"><span>9:41</span><span class="island"></span>
+      <span class="sb-r"><span class="g5">5G</span><span class="bars"><i></i><i></i><i></i><i></i></span><span class="batt"><i></i></span></span>
+    </div>
+    <div class="hd">
+      <div class="ic" data-goto="s2" title="返回：屏 2 任务详情">←</div>
+      <div class="t">提交报价</div>
+      <div class="ic" data-toast="静态原型：查看本任务全部 12 条报价（仅发单方可见明细）">👥</div>
+    </div>
+
+    <div class="vp pad">
+      <div class="card tight" style="background:#FAFCFF">
+        <div class="row sp">
+          <div style="flex:1;min-width:0">
+            <div class="b" style="font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">开发一个小程序商城后台</div>
+            <div class="xs mut mt6">竞拍 BID · 线上 · 预算 ¥3,000-5,000</div>
+          </div>
+          <span class="tag t-amber">剩余 2天4小时</span>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="flabel"><span class="req">*</span>报价金额<span class="r">预算区间 ¥3,000 - 5,000</span></div>
+        <div class="inp on"><span class="cur">¥</span><span class="val">3,800</span><span class="cursor"></span>
+          <span style="margin-left:auto" class="xs mut">含税 · 平台抽成后实得 ¥3,629.00</span></div>
+        <div class="segs mt8">
+          <button class="seg" data-toast="静态原型：快捷填写报价">¥3,200</button>
+          <button class="seg on" data-toast="静态原型：快捷填写报价">¥3,800</button>
+          <button class="seg" data-toast="静态原型：快捷填写报价">¥4,500</button>
+          <button class="seg" data-toast="静态原型：快捷填写报价">自定义</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="flabel"><span class="req">*</span>承诺工期</div>
+        <div class="stepper"><button data-toast="静态原型：减少工期">−</button><span class="v">7 天</span><button data-toast="静态原型：增加工期">＋</button></div>
+        <div class="xs mut mt8">自中标并托管成功之日起算；逾期未交付将扣 <b>−15 分</b>信誉分（§4.9.3）。</div>
+      </div>
+
+      <div class="field">
+        <div class="flabel"><span class="req">*</span>方案说明<span class="r">建议 ≥100 字</span></div>
+        <div class="ta">1）小程序端不动，后台用 Spring Boot 3 + MySQL 8 + Redis，管理端 Vue3 + Element Plus；
+2）第 3 天交付可点原型与数据库设计，第 5 天完成微信支付 V3 下单/回调/退款联调，第 7 天整体交付；
+3）源码用私有仓库交付并给你只读权限 30 天，附部署文档（含 Docker Compose），
+   交付后 15 天内免费修缺陷。<span class="cursor"></span></div>
+        <div class="row sp mt8"><span class="xs mut">已输入 168 字</span><span class="xs mut">支持从剪贴板粘贴</span></div>
+      </div>
+
+      <div class="field">
+        <div class="flabel">附件（可选）<span class="r">已选 2 / 5</span></div>
+        <div class="up" data-toast="静态原型：调用 wx.chooseMessageFile → wx.uploadFile（⛔ 不支持分片与断点续传）">
+          <div class="plus">＋</div>
+          <div class="b" style="font-size:13px">添加附件</div>
+          <div class="xs mut mt6">从微信聊天记录选择文件 · 图片 / PDF / 压缩包</div>
+        </div>
+        <div class="fitem">
+          <span class="fi">📄</span>
+          <div class="fn"><div class="n1">商城后台技术方案.pdf</div><div class="n2">4.2 MB · 已上传 ✅</div></div>
+          <span class="x" data-toast="静态原型：移除附件">✕</span>
+        </div>
+        <div class="fitem">
+          <span class="fi">🖼️</span>
+          <div class="fn"><div class="n1">同类案例截图.png</div><div class="n2">1.1 MB · 已上传 ✅</div></div>
+          <span class="x" data-toast="静态原型：移除附件">✕</span>
+        </div>
+
+        <div class="notice amber" style="margin:10px 0 0">
+          <span class="ni">⚠️</span>
+          <div><b>小程序上传限制</b>（§5.15.7）：单文件 <b>≤20MB</b>、单次最多 5 个、<b>不支持分片与断点续传</b>，弱网中断需重传。<br>
+          <b>超大交付物（完整源码包 / 设计源文件 / 视频素材）请用电脑端或 App 交付。</b></div>
+          <div class="nt">
+            <button class="btn xs" data-toast="已复制电脑端链接：https://task.example.com/u/8f3a2c（静态原型仅演示文案）">📋 复制电脑端链接</button>
+            <button class="btn ghost xs" data-toast="静态原型：生成小程序码，用电脑扫码继续在电脑端上传">生成扫码链接</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="notice blue">
+        <span class="ni">💳</span>
+        <div><b>托管与支付说明</b>：中标后发单方支付任务款，资金进入平台托管。<br>
+        小程序内<b>仅支持微信支付</b>（JSAPI）；⛔ 小程序内不允许使用支付宝，如需支付宝请到 App 或电脑端。</div>
+      </div>
+
+      <div class="card tight" style="background:#FAFCFF">
+        <div class="row sp"><span class="xs mut">提交后占用 1 个「进行中」名额</span><span class="xs b" style="color:var(--blue)">当前 2 / 5（🔵 良好）</span></div>
+        <div class="prog mt8"><i style="width:40%"></i></div>
+        <div class="xs mut mt6">信誉分升到 🟢 优秀（80 分）后上限提至 8 个。</div>
+      </div>
+      <div style="height:4px"></div>
+    </div>
+
+    <div class="bbar">
+      <div class="col" style="flex:0 0 96px">
+        <span class="xs mut">报价</span>
+        <span class="big">¥3,800</span>
+      </div>
+      <div class="bwrap">
+        <button class="btn" data-goto="s6" title="跳转：屏 6 我的报价">提交报价</button>
+      </div>
+    </div>
+    <div class="hi" style="background:#fff"><i></i></div>
+  </div>
+  <div class="cap">
+    <span class="no">屏 5</span>
+    <div class="nm">提交报价</div>
+    <div class="rt">pages/quote/create（分包）</div>
+    <div class="sec">报价金额 · 工期 · 方案说明 · 附件上传 · ⚠️「单文件 ≤20MB，超大交付物请用电脑端」提示条 + 电脑端链接 · 支付限制说明</div>
+  </div>
+</section>
+
+<!-- ==================== 屏 6 我的报价 ==================== -->
+<section class="screen" id="s6" data-name="我的报价">
+  <div class="phone">
+    <div class="sbar"><span>9:41</span><span class="island"></span>
+      <span class="sb-r"><span class="g5">5G</span><span class="bars"><i></i><i></i><i></i><i></i></span><span class="batt"><i></i></span></span>
+    </div>
+    <div class="hd">
+      <div class="ic" data-goto="s1" title="返回：首页">←</div>
+      <div class="t">我的报价</div>
+      <div class="ic" data-toast="静态原型：报价记录筛选（按时间 / 状态 / 金额）">⇅</div>
+    </div>
+
+    <div class="vp">
+      <div class="tabs">
+        <div class="tab2 on" data-toast="静态原型：切换到「待评审」（下同，Tab 为可点击热区）">待评审 <span class="n">3</span></div>
+        <div class="tab2" data-toast="静态原型：切换到「已入围」">已入围 <span class="n">2</span></div>
+        <div class="tab2" data-toast="静态原型：切换到「已中标」">已中标 <span class="n">1</span></div>
+        <div class="tab2" data-toast="静态原型：切换到「已落选」">已落选 <span class="n">4</span></div>
+      </div>
+
+      <div class="ocard">
+        <div class="oh"><span class="tag t-blue">待评审</span><span class="no" style="margin-left:auto">报价 #Q-20261015-0022</span></div>
+        <div class="ob">
+          <h4>开发一个小程序商城后台</h4>
+          <div class="row sp">
+            <span class="xs mut">我的报价</span>
+            <span style="font-size:19px;font-weight:800;color:var(--red);font-variant-numeric:tabular-nums">¥3,800</span>
+          </div>
+          <div class="kv mt6"><span class="k">预算区间</span><span class="v">¥3,000 - 5,000 · 共 12 人报价</span></div>
+          <div class="kv"><span class="k">承诺工期</span><span class="v">7 天</span></div>
+          <div class="kv"><span class="k">提交时间</span><span class="v">10-15 10:22</span></div>
+        </div>
+        <div class="of">
+          <span class="xs mut">报价截止还剩</span><span class="timer warn">2 天 04:12:38</span>
+          <button class="btn ghost tiny" style="margin-left:auto" data-toast="静态原型：撤回报价（截止前可撤回，撤回不扣分）">撤回报价</button>
+        </div>
+      </div>
+
+      <div class="ocard">
+        <div class="oh"><span class="tag t-blue">待评审</span><span class="no" style="margin-left:auto">报价 #Q-20261014-0018</span></div>
+        <div class="ob">
+          <h4>品牌 VI 视觉设计与全套物料</h4>
+          <div class="row sp">
+            <span class="xs mut">我的报价</span>
+            <span style="font-size:19px;font-weight:800;color:var(--red);font-variant-numeric:tabular-nums">¥1,650</span>
+          </div>
+          <div class="kv mt6"><span class="k">预算区间</span><span class="v">¥1,200 - 2,000 · 共 27 人报价</span></div>
+          <div class="kv"><span class="k">提交时间</span><span class="v">10-14 18:05</span></div>
+        </div>
+        <div class="of"><span class="xs mut">报价截止还剩</span><span class="timer warn">8 小时 12 分</span>
+          <button class="btn ghost tiny" style="margin-left:auto" data-toast="静态原型：撤回报价">撤回报价</button></div>
+      </div>
+
+      <div class="ocard">
+        <div class="oh"><span class="tag t-blue">待评审</span><span class="no" style="margin-left:auto">报价 #Q-20261014-0009</span></div>
+        <div class="ob">
+          <h4>门店小程序首页改版</h4>
+          <div class="row sp">
+            <span class="xs mut">我的报价</span>
+            <span style="font-size:19px;font-weight:800;color:var(--red);font-variant-numeric:tabular-nums">¥900</span>
+          </div>
+          <div class="kv mt6"><span class="k">预算区间</span><span class="v">¥800 - 1,200 · 共 5 人报价</span></div>
+          <div class="kv"><span class="k">提交时间</span><span class="v">10-14 09:31</span></div>
+        </div>
+        <div class="of"><span class="xs mut">报价截止还剩</span><span class="timer warn">6 小时 02 分</span>
+          <button class="btn ghost tiny" style="margin-left:auto" data-toast="静态原型：撤回报价">撤回报价</button></div>
+      </div>
+
+      <div class="sechd"><span class="bar" style="background:var(--muted2)"></span>其他状态示例<span class="r">静态展示，用于确认状态色</span></div>
+
+      <div class="ocard" style="opacity:.96">
+        <div class="oh"><span class="tag t-amber">已入围</span><span class="no" style="margin-left:auto">报价 #Q-20261013-0031</span></div>
+        <div class="ob">
+          <h4>企业官网 + 后台管理系统重构</h4>
+          <div class="row sp"><span class="xs mut">我的报价</span>
+            <span style="font-size:19px;font-weight:800;color:var(--red);font-variant-numeric:tabular-nums">¥6,800</span></div>
+          <div class="kv mt6"><span class="k">状态说明</span><span class="v">已入选前 3 名，等待发单方选定中标方（PENDING_SELECT）</span></div>
+        </div>
+        <div class="of"><span class="xs mut">发单方预计 1 天内选标</span>
+          <button class="btn ghost tiny" style="margin-left:auto" data-goto="s10" title="跳转：屏 10 聊天">去沟通</button></div>
+      </div>
+
+      <div class="ocard" style="opacity:.96">
+        <div class="oh"><span class="tag t-amber">已入围</span><span class="no" style="margin-left:auto">报价 #Q-20261012-0027</span></div>
+        <div class="ob">
+          <h4>会员积分体系小程序开发</h4>
+          <div class="row sp"><span class="xs mut">我的报价</span>
+            <span style="font-size:19px;font-weight:800;color:var(--red);font-variant-numeric:tabular-nums">¥4,200</span></div>
+        </div>
+        <div class="of"><span class="xs mut">等待选标</span>
+          <button class="btn ghost tiny" style="margin-left:auto" data-goto="s10" title="跳转：屏 10 聊天">去沟通</button></div>
+      </div>
+
+      <div class="ocard">
+        <div class="oh"><span class="tag t-solidg">已中标</span><span class="no" style="margin-left:auto">报价 #Q-20261015-0001</span></div>
+        <div class="ob">
+          <h4>开发一个小程序商城后台（上一单）</h4>
+          <div class="row sp"><span class="xs mut">中标金额</span>
+            <span style="font-size:19px;font-weight:800;color:var(--green);font-variant-numeric:tabular-nums">¥3,800</span></div>
+          <div class="kv mt6"><span class="k">订单号</span><span class="v" style="font-family:ui-monospace,Consolas,monospace">TK20261015001</span></div>
+        </div>
+        <div class="of"><span class="xs mut">已生成订单，请在 2 天内开始履约</span>
+          <button class="btn tiny" style="margin-left:auto;background:var(--blue)" data-goto="s7" title="跳转：屏 7 我的接单">进入订单</button></div>
+      </div>
+
+      <div class="ocard" style="opacity:.9">
+        <div class="oh"><span class="tag t-gray">已落选</span><span class="no" style="margin-left:auto">报价 #Q-20261011-0015</span></div>
+        <div class="ob">
+          <h4>餐饮连锁点餐小程序（含后厨打印）</h4>
+          <div class="row sp"><span class="xs mut">我的报价</span>
+            <span style="font-size:19px;font-weight:800;color:var(--muted);font-variant-numeric:tabular-nums">¥5,600</span></div>
+          <div class="kv mt6"><span class="k">落选原因</span><span class="v">发单方选择了 ¥4,900 的报价（非质量原因，不计入信誉分）</span></div>
+        </div>
+        <div class="of"><span class="xs mut">已落选 4 单 · 可查看历史报价复盘</span>
+          <button class="btn ghost tiny" style="margin-left:auto" data-toast="静态原型：查看该任务最终成交价（成交后公开）">看成交价</button></div>
+      </div>
+
+      <div class="card" style="text-align:center;padding:13px">
+        <div class="xs mut">本页共 10 条报价记录 · 游标分页加载</div>
+      </div>
+    </div>
+
+    <div class="tabbar">
+      <div class="tabrow">
+        <div class="tab" data-goto="s1"><span class="ti">🏠</span>首页</div>
+        <div class="tab on" data-goto="s6"><span class="ti">📋</span>任务</div>
+        <div class="tab" data-goto="s9"><span class="ti">💬</span>消息<span class="bdg">3</span></div>
+        <div class="tab" data-goto="s11"><span class="ti">👤</span>我的</div>
+      </div>
+      <div class="hi"><i></i></div>
+    </div>
+  </div>
+  <div class="cap">
+    <span class="no">屏 6</span>
+    <div class="nm">我的报价</div>
+    <div class="rt">pages/quote/list（分包）</div>
+    <div class="sec">Tab：待评审 / 已入围 / 已中标 / 已落选 · 列表项显示报价金额与状态色 · 「已中标」可进入订单</div>
+  </div>
+</section>
+
+<!-- ==================== 屏 7 我的接单（订单工作台） ==================== -->
+<section class="screen" id="s7" data-name="我的接单（订单工作台）">
+  <div class="phone">
+    <div class="sbar"><span>9:41</span><span class="island"></span>
+      <span class="sb-r"><span class="g5">5G</span><span class="bars"><i></i><i></i><i></i><i></i></span><span class="batt"><i></i></span></span>
+    </div>
+    <div class="hd">
+      <div class="ic" data-goto="s6" title="返回：我的报价">←</div>
+      <div class="t">我的接单</div>
+      <div class="ic" data-toast="静态原型：订单筛选 / 搜索订单号">⇅</div>
+    </div>
+
+    <div class="vp">
+      <div class="card tight" style="background:linear-gradient(135deg,#EFF6FF,#F5F3FF);border-color:var(--blue-b)">
+        <div class="row sp">
+          <div><div class="xs mut">进行中订单名额</div>
+            <div class="b" style="font-size:16px;color:var(--blue)">2 / 5</div></div>
+          <div style="text-align:right"><div class="xs mut">本月已完成 / 结算</div>
+            <div class="b" style="font-size:16px;color:var(--green)">6 单 · ¥12,240</div></div>
+        </div>
+        <div class="prog mt8"><i style="width:40%"></i></div>
+      </div>
+
+      <div class="tabs">
+        <div class="tab2" data-toast="静态原型：切换到「待开始」">待开始 <span class="n">1</span></div>
+        <div class="tab2 on" data-toast="静态原型：切换到「履约中」（默认展示）">履约中 <span class="n">2</span></div>
+        <div class="tab2" data-toast="静态原型：切换到「待验收」">待验收 <span class="n">1</span></div>
+        <div class="tab2" data-toast="静态原型：切换到「返工」">返工 <span class="n">1</span></div>
+      </div>
+
+      <div class="ocard" data-goto="s8" title="跳转：屏 8 交付提交页">
+        <div class="oh"><span class="tag t-blue">履约中</span><span class="tag t-gray">IN_PROGRESS</span>
+          <span class="no" style="margin-left:auto">TK20261015001</span></div>
+        <div class="ob">
+          <h4>开发一个小程序商城后台</h4>
+          <div class="row sp">
+            <div><div class="xs mut">订单金额</div>
+              <div style="font-size:20px;font-weight:800;color:var(--red);font-variant-numeric:tabular-nums">¥3,800.00</div></div>
+            <div style="text-align:right"><div class="xs mut">预计实得（−0.5%）</div>
+              <div class="b" style="font-size:14px;color:var(--green);font-variant-numeric:tabular-nums">¥3,629.00</div></div>
+          </div>
+          <div class="hr"></div>
+          <div class="row sp"><span class="xs mut">里程碑 2 / 3 · 微信支付 V3 联调</span><span class="xs b">40%</span></div>
+          <div class="prog mt6"><i style="width:40%"></i></div>
+        </div>
+        <div class="of">
+          <span class="xs mut">⏳ 交付倒计时</span><span class="timer warn">4 天 06:12:33</span>
+          <button class="btn tiny" style="margin-left:auto;background:var(--blue)">去交付</button>
+        </div>
+      </div>
+
+      <div class="ocard">
+        <div class="oh"><span class="tag t-blue">履约中</span><span class="tag t-gray">IN_PROGRESS</span>
+          <span class="no" style="margin-left:auto">TK20261012007</span></div>
+        <div class="ob">
+          <h4>公众号长文 3 篇 · AI 行业观察</h4>
+          <div class="row sp">
+            <div><div class="xs mut">订单金额（按量 ¥120 × 3）</div>
+              <div style="font-size:20px;font-weight:800;color:var(--red);font-variant-numeric:tabular-nums">¥360.00</div></div>
+            <div style="text-align:right"><div class="xs mut">已交付 / 已结</div>
+              <div class="b" style="font-size:14px;color:var(--green)">1 / 3 篇 · ¥114.00</div></div>
+          </div>
+          <div class="hr"></div>
+          <div class="row sp"><span class="xs mut">按批次结算：每通过 1 篇先结 1 篇</span><span class="xs b">33%</span></div>
+          <div class="prog mt6"><i style="width:33%"></i></div>
+        </div>
+        <div class="of"><span class="xs mut">⏳ 第 2 篇倒计时</span><span class="timer">9 小时 04 分</span>
+          <button class="btn ghost tiny" style="margin-left:auto" data-goto="s8" title="跳转：屏 8 交付提交页">去交付</button></div>
+      </div>
+
+      <div class="ocard">
+        <div class="oh"><span class="tag t-blue">待开始</span><span class="tag t-gray">PENDING_START</span>
+          <span class="no" style="margin-left:auto">TK20261017003</span></div>
+        <div class="ob">
+          <h4>周五下午会展中心物料搬运（3 小时）</h4>
+          <div class="row sp">
+            <div><div class="xs mut">订单金额（一口价）</div>
+              <div style="font-size:20px;font-weight:800;color:var(--red);font-variant-numeric:tabular-nums">¥180.00</div></div>
+            <span class="tag t-red">需到场签到</span>
+          </div>
+          <div class="kv mt8"><span class="k">服务时间</span><span class="v">2026-10-17 13:00-16:00</span></div>
+          <div class="kv"><span class="k">地点</span><span class="v">会展中心 1 号门 · 距我 4.2km</span></div>
+        </div>
+        <div class="of"><span class="xs mut">⏳ 距服务开始</span><span class="timer">1 天 20:12:33</span>
+          <button class="btn ghost tiny" style="margin-left:auto" data-toast="静态原型：到场扫码签到（GPS + 扫码双校验，位置授权可降级）">扫码签到</button></div>
+      </div>
+
+      <div class="ocard">
+        <div class="oh"><span class="tag t-amber">待验收</span><span class="tag t-gray">PENDING_ACCEPT</span>
+          <span class="no" style="margin-left:auto">TK20261008003</span></div>
+        <div class="ob">
+          <h4>门店小程序首页改版</h4>
+          <div class="row sp">
+            <div><div class="xs mut">订单金额</div>
+              <div style="font-size:20px;font-weight:800;color:var(--red);font-variant-numeric:tabular-nums">¥900.00</div></div>
+            <div style="text-align:right"><div class="xs mut">已提交交付</div>
+              <div class="b xs">10-14 16:20</div></div>
+          </div>
+          <div class="notice amber" style="margin:10px 0 0"><span class="ni">⏱️</span>
+            <div>发单方需在 <b>72 小时</b>内验收，逾期系统<b>自动验收并结算</b>（§4.3.5，偏向接单方）。</div></div>
+        </div>
+        <div class="of"><span class="xs mut">⏳ 自动验收倒计时</span><span class="timer">52:10:05</span>
+          <button class="btn ghost tiny" style="margin-left:auto" data-toast="静态原型：催验收（发提醒给发单方）">催一催</button></div>
+      </div>
+
+      <div class="ocard">
+        <div class="oh"><span class="tag t-red">返工</span><span class="tag t-gray">REVISION</span>
+          <span class="no" style="margin-left:auto">TK20261005002</span></div>
+        <div class="ob">
+          <h4>旧房墙面翻新刷漆 · 约 60㎡</h4>
+          <div class="row sp">
+            <div><div class="xs mut">订单金额</div>
+              <div style="font-size:20px;font-weight:800;color:var(--red);font-variant-numeric:tabular-nums">¥1,000.00</div></div>
+            <div style="text-align:right"><div class="xs mut">修改轮次</div>
+              <div class="b" style="font-size:14px;color:var(--red)">1 / 2</div></div>
+          </div>
+          <div class="notice red" style="margin:10px 0 0"><span class="ni">↩️</span>
+            <div><b>驳回原因（发单方）：</b>次卧墙面颜色与确认稿色号不符，需按 NCS S1002-Y 重新刷一遍。</div>
+            <div class="xs mt6">被驳回（责任在己）每次 <b>−3 分</b>，单订单最多 −9 分。</div></div>
+        </div>
+        <div class="of"><span class="xs mut">⏳ 返工剩余时间</span><span class="timer warn">18 小时 40 分</span>
+          <button class="btn tiny" style="margin-left:auto;background:var(--red)" data-goto="s8" title="跳转：屏 8 交付提交页">重新交付</button></div>
+      </div>
+
+      <div class="card" style="text-align:center;padding:13px">
+        <div class="xs mut">已加载 5 条订单 · 下拉刷新（游标分页）</div>
+      </div>
+    </div>
+
+    <div class="tabbar">
+      <div class="tabrow">
+        <div class="tab" data-goto="s1"><span class="ti">🏠</span>首页</div>
+        <div class="tab on" data-goto="s6"><span class="ti">📋</span>任务</div>
+        <div class="tab" data-goto="s9"><span class="ti">💬</span>消息<span class="bdg">3</span></div>
+        <div class="tab" data-goto="s11"><span class="ti">👤</span>我的</div>
+      </div>
+      <div class="hi"><i></i></div>
+    </div>
+  </div>
+  <div class="cap">
+    <span class="no">屏 7</span>
+    <div class="nm">我的接单（订单工作台）</div>
+    <div class="rt">pages/order/list（分包）</div>
+    <div class="sec">Tab：待开始 / 履约中 / 待验收 / 返工 · 卡片含订单号、金额、倒计时、状态标签 · 点击进入屏 8</div>
+  </div>
+</section>
+
+<!-- ==================== 屏 8 交付提交页 ==================== -->
+<section class="screen" id="s8" data-name="交付提交页">
+  <div class="phone">
+    <div class="sbar"><span>9:41</span><span class="island"></span>
+      <span class="sb-r"><span class="g5">5G</span><span class="bars"><i></i><i></i><i></i><i></i></span><span class="batt"><i></i></span></span>
+    </div>
+    <div class="hd">
+      <div class="ic" data-goto="s7" title="返回：屏 7 我的接单">←</div>
+      <div class="t">提交交付</div>
+      <div class="ic" data-toast="静态原型：查看该订单的历史交付与返工记录">🕘</div>
+    </div>
+
+    <div class="vp pad">
+      <div class="card tight" style="background:#FAFCFF">
+        <div class="row sp">
+          <div style="flex:1;min-width:0">
+            <div class="b" style="font-size:13px">开发一个小程序商城后台</div>
+            <div class="xs mut mt6">TK20261015001 · 里程碑 2 / 3 · 微信支付 V3 联调</div>
+          </div>
+          <span class="timer warn" style="font-size:12px">4 天 06:12:33</span>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="flabel"><span class="req">*</span>交付说明<span class="r">发单方验收依据</span></div>
+        <div class="ta">本次交付「微信支付 V3 联调」里程碑：
+1）已完成 JSAPI 下单、支付回调验签、退款申请与退款回调全链路；
+2）测试环境已跑通 1 笔下单（¥0.01）+ 1 笔退款，回调日志与流水号见附件接口清单；
+3）超卖拦截：下单前用 Redis 预扣库存，并发 200 压测无超卖；
+4）部署文档已更新至 v1.2，新增微信支付证书配置章节。
+⚠️ 完整源码包 128MB，超过小程序上传上限，已通过电脑端上传（链接见下）。<span class="cursor"></span></div>
+      </div>
+
+      <div class="field">
+        <div class="flabel">交付附件<span class="r">已上传 2 / 5</span></div>
+        <div class="up" data-toast="静态原型：wx.chooseMessageFile → wx.uploadFile（单文件 ≤20MB，不支持分片）">
+          <div class="plus">＋</div>
+          <div class="b" style="font-size:13px">添加交付附件</div>
+          <div class="xs mut mt6">图片 / PDF / 文档 / ≤20MB 压缩包</div>
+        </div>
+        <div class="fitem">
+          <span class="fi">📄</span>
+          <div class="fn"><div class="n1">部署文档-v1.2.pdf</div><div class="n2">2.4 MB · 已上传 ✅</div></div>
+          <span class="x" data-toast="静态原型：移除附件">✕</span>
+        </div>
+        <div class="fitem">
+          <span class="fi">📊</span>
+          <div class="fn"><div class="n1">支付接口清单-含回调日志.xlsx</div><div class="n2">340 KB · 已上传 ✅</div></div>
+          <span class="x" data-toast="静态原型：移除附件">✕</span>
+        </div>
+        <div class="fitem bad">
+          <span class="fi">🗜️</span>
+          <div class="fn"><div class="n1">商城后台-源码v1.2.zip</div><div class="n2" style="color:var(--red)">128 MB · ❌ 超过小程序 20MB 上限，未上传</div></div>
+          <span class="x" data-toast="静态原型：移除该记录">✕</span>
+        </div>
+
+        <div class="notice red" style="margin:10px 0 0">
+          <span class="ni">🚫</span>
+          <div><b>小程序不支持大文件分片与断点续传</b>（§5.15.2 / §5.15.7）：超过 <b>20MB</b> 的交付物无法在小程序内上传。<br>
+          请使用<b>电脑端 / App</b> 交付源码包、设计源文件、视频等大文件。</div>
+          <div class="nt">
+            <button class="btn xs" data-toast="已复制电脑端交付链接：https://task.example.com/d/TK20261015001（静态原型仅演示文案）">📋 复制电脑端交付链接</button>
+            <button class="btn ghost xs" data-toast="静态原型：生成小程序码，手机扫码后在电脑上继续上传（深链回跳本订单）">生成扫码链接</button>
+          </div>
+          <div class="xs mt6">已在电脑端上传？可粘贴链接作为交付凭证：</div>
+          <div class="inp mt6" style="height:36px"><span class="xs" style="color:var(--ink2)">https://pan.example.com/s/tk2026…</span><span class="xs mut" style="margin-left:auto">粘贴</span></div>
+        </div>
+      </div>
+
+      <div class="sechd"><span class="bar" style="background:var(--red)"></span>验收标准自查<span class="r">提交前请逐条确认</span></div>
+      <div class="card tight">
+        <div class="cbxrow" data-toast="静态原型：勾选/取消（第 1 条为必过项）">
+          <span class="cbx on must">✓</span>
+          <span class="tx2"><span class="must-tag">必过</span>四大模块功能在测试环境全部可走通，无 P0 / P1 缺陷。</span>
+        </div>
+        <div class="cbxrow" data-toast="静态原型：勾选/取消">
+          <span class="cbx on">✓</span>
+          <span class="tx2">管理端在 Chrome 最新版无控制台报错，首屏加载 ≤ 3s（实测 2.1s）。</span>
+        </div>
+        <div class="cbxrow" data-toast="静态原型：勾选/取消">
+          <span class="cbx">　</span>
+          <span class="tx2">提供部署文档，按文档可在全新服务器 4 小时内完成部署。</span>
+        </div>
+        <div class="notice amber" style="margin:10px 0 0"><span class="ni">⚠️</span>
+          <div>第 3 条<b>尚未勾选</b>，仍可提交，但发单方可能因此驳回（驳回若责任在你，每次 <b>−3 分</b>）。</div></div>
+      </div>
+
+      <div class="notice blue">
+        <span class="ni">⏱️</span>
+        <div>提交后发单方需在 <b>72 小时</b>内验收：通过则资金分账；逾期系统<b>自动验收并结算</b>；
+        驳回则进入「返工中」（本单最多 2 轮）。</div>
+      </div>
+      <div style="height:4px"></div>
+    </div>
+
+    <div class="bbar">
+      <div class="col" style="flex:0 0 84px">
+        <span class="xs mut">里程碑</span>
+        <span class="b" style="font-size:14px">2 / 3</span>
+      </div>
+      <div class="bwrap">
+        <button class="btn" data-goto="s7" title="跳转：屏 7 我的接单（模拟提交后返回）">提交交付</button>
+      </div>
+    </div>
+    <div class="hi" style="background:#fff"><i></i></div>
+  </div>
+  <div class="cap">
+    <span class="no">屏 8</span>
+    <div class="nm">交付提交页</div>
+    <div class="rt">pages/order/deliver?id=…</div>
+    <div class="sec">交付说明 · 附件（含 128MB 被拒示例）· 验收标准自查勾选清单 · 再次强调 20MB 大文件限制与电脑端迂回方案</div>
+  </div>
+</section>
+
+<!-- ==================== 屏 9 消息列表 ==================== -->
+<section class="screen" id="s9" data-name="消息列表">
+  <div class="phone">
+    <div class="sbar"><span>9:41</span><span class="island"></span>
+      <span class="sb-r"><span class="g5">5G</span><span class="bars"><i></i><i></i><i></i><i></i></span><span class="batt"><i></i></span></span>
+    </div>
+    <div class="hd">
+      <div class="ic" data-goto="s1" title="返回：首页">←</div>
+      <div class="t">消息</div>
+      <div class="ic" data-toast="静态原型：标记全部已读">✓</div>
+    </div>
+
+    <div class="vp">
+      <div class="li" style="align-items:center" data-toast="静态原型：系统通知页未在本轮绘制（中标 / 交付 / 验收 / 结算 / 工单）">
+        <span class="av" style="background:linear-gradient(135deg,#60A5FA,#2563EB)">🔔</span>
+        <div class="bd">
+          <div class="r1"><span class="nm">系统通知</span><span class="tm">刚刚</span></div>
+          <div class="r2">【中标】你已中标「开发一个小程序商城后台」，请在 2 天内开始履约</div>
+        </div>
+        <span class="unread">3</span>
+      </div>
+
+      <div class="li" data-goto="s10" title="跳转：屏 10 聊天会话页">
+        <span class="av avatar-blue">王</span>
+        <div class="bd">
+          <div class="r1"><span class="nm">王工</span><span class="tag t-blue" style="height:17px;font-size:10px">发单方</span><span class="tm">12:04</span></div>
+          <div class="r2">你好，验收标准第 2 条能不能放宽到 4 秒？</div>
+        </div>
+        <span class="unread">2</span>
+      </div>
+
+      <div class="li" data-goto="s10" title="跳转：屏 10 聊天会话页">
+        <span class="av avatar-amber">刘</span>
+        <div class="bd">
+          <div class="r1"><span class="nm">刘经理</span><span class="tag t-amber" style="height:17px;font-size:10px">发单方</span><span class="tm">昨天 18:20</span></div>
+          <div class="r2">好的，明天上午我去现场测量，13:00 前到</div>
+        </div>
+      </div>
+
+      <div class="li" data-goto="s10" title="跳转：屏 10 聊天会话页">
+        <span class="av avatar-green">李</span>
+        <div class="bd">
+          <div class="r1"><span class="nm">李小云</span><span class="tag t-green" style="height:17px;font-size:10px">接单方</span><span class="tm">周一</span></div>
+          <div class="r2">设计源文件已经发你邮箱了，注意查收 🙌</div>
+        </div>
+      </div>
+
+      <div class="li" data-toast="静态原型：平台客服会话（工单 / 争议入口）">
+        <span class="av avatar-purple">🛡️</span>
+        <div class="bd">
+          <div class="r1"><span class="nm">平台客服小助手</span><span class="tag t-purple" style="height:17px;font-size:10px">官方</span><span class="tm">10-12</span></div>
+          <div class="r2">你的实名认证已通过 ✅，现在可以正常接单与提现了</div>
+        </div>
+      </div>
+
+      <div class="li" data-toast="静态原型：与「张设计」的会话">
+        <span class="av avatar-gray">张</span>
+        <div class="bd">
+          <div class="r1"><span class="nm">张设计</span><span class="tm">10-11</span></div>
+          <div class="r2">收到，我先看下方案，明天给你答复</div>
+        </div>
+      </div>
+
+      <div class="li" data-toast="静态原型：与「陈老板」的会话">
+        <span class="av avatar-red">陈</span>
+        <div class="bd">
+          <div class="r1"><span class="nm">陈老板</span><span class="tm">10-10</span></div>
+          <div class="r2">[图片] 这是现场的照片，你看下能不能做</div>
+        </div>
+      </div>
+
+      <div class="notice amber" style="margin-top:12px">
+        <span class="ni">📶</span>
+        <div>小程序 WebSocket <b>全局最多 2 条连接、切后台会断开</b>：回到前台自动重新握手，
+        并用<b>最大消息序号拉增量补偿</b>，不会丢消息（§5.15.8）。</div>
+      </div>
+      <div class="notice blue">
+        <span class="ni">🔔</span>
+        <div>小程序不支持系统级静默推送，只有<b>一次性订阅消息</b>。重要节点请开启订阅，否则可能错过中标与验收通知。</div>
+        <div class="nt"><button class="btn xs" data-toast="静态原型：wx.requestSubscribeMessage（每次都要用户主动授权，有模板与次数限制）">开启关键通知订阅</button></div>
+      </div>
+    </div>
+
+    <div class="tabbar">
+      <div class="tabrow">
+        <div class="tab" data-goto="s1"><span class="ti">🏠</span>首页</div>
+        <div class="tab" data-goto="s6"><span class="ti">📋</span>任务</div>
+        <div class="tab on" data-goto="s9"><span class="ti">💬</span>消息<span class="bdg">3</span></div>
+        <div class="tab" data-goto="s11"><span class="ti">👤</span>我的</div>
+      </div>
+      <div class="hi"><i></i></div>
+    </div>
+  </div>
+  <div class="cap">
+    <span class="no">屏 9</span>
+    <div class="nm">消息列表</div>
+    <div class="rt">pages/im/list（分包）</div>
+    <div class="sec">顶部「系统通知」入口 + 会话列表（头像 / 名称 / 最后一条 / 未读红点）· 点击会话 → 屏 10</div>
+  </div>
+</section>
+
+<!-- ==================== 屏 10 聊天会话页 ==================== -->
+<section class="screen" id="s10" data-name="聊天会话页">
+  <div class="phone">
+    <div class="sbar"><span>9:41</span><span class="island"></span>
+      <span class="sb-r"><span class="g5">5G</span><span class="bars"><i></i><i></i><i></i><i></i></span><span class="batt"><i></i></span></span>
+    </div>
+    <div class="hd">
+      <div class="ic" data-goto="s9" title="返回：屏 9 消息列表">←</div>
+      <div class="t" style="font-size:15px">王工 <span class="xs mut" style="font-weight:600">· 发单方 · 在线</span></div>
+      <div class="ic" data-toast="静态原型：会话设置（消息免打扰 / 举报 / 查看对方主页）">⋯</div>
+    </div>
+
+    <div class="vp">
+      <div class="msgs">
+        <div class="daydiv">今天 12:01</div>
+
+        <div class="syscard">🔒 平台已托管本任务资金 <b>¥3,800.00</b>，验收通过后自动分账
+          <span class="st">系统消息 · 12:01</span></div>
+
+        <div class="msg l">
+          <span class="mav avatar-blue">王</span>
+          <div class="bub">你好，看到你的报价了。工期 7 天能压缩到 5 天吗？我们下周要开始内测。</div>
+          <span class="tmm">12:02</span>
+        </div>
+
+        <div class="msg r">
+          <span class="mav avatar-green">我</span>
+          <div class="bub">可以的。压缩到 5 天需要并行做支付联调，报价会加 ¥400，也就是 ¥4,200，其余交付物不变。</div>
+          <span class="tmm">12:03</span>
+        </div>
+
+        <div class="syscard">⚠️ 对方已被平台提示：请勿脱离平台交易
+          <span class="st">平台风控提醒 · 12:03</span></div>
+
+        <div class="msg l">
+          <span class="mav avatar-blue">王</span>
+          <div class="bub">明白，我先跟合伙人确认一下。对了，加个微信聊吧，我微信是 wx_****</div>
+          <span class="tmm">12:04</span>
+        </div>
+
+        <div class="syscard red">🚫 该消息含疑似站外联系方式，已被风控标记。脱离平台交易不受托管与仲裁保护，且可能被扣 10~30 分信誉分。
+          <span class="st">平台风控提醒 · 12:04</span></div>
+
+        <div class="msg r">
+          <span class="mav avatar-green">我</span>
+          <div class="bub">抱歉，平台规则要求全程站内沟通、走托管结算，这样对你我都有保障。我们就在这里聊，方案我随时可以发你 🙂</div>
+          <span class="tmm">12:05</span>
+        </div>
+
+        <div class="msg l">
+          <span class="mav avatar-blue">王</span>
+          <div class="bub">行，那就按 ¥4,200、5 天来，我这边今天就把报价改成中标。</div>
+          <span class="tmm">12:06</span>
+        </div>
+
+        <div class="syscard">🔔 小程序切后台会断开长连接，回到前台已自动补拉 <b>3 条</b>离线消息
+          <span class="st">系统提示 · 12:06</span></div>
+      </div>
+    </div>
+
+    <div class="quickrow">
+      <span class="quick" data-toast="静态原型：发送「我的验收标准理解」卡片">发送验收标准确认</span>
+      <span class="quick" data-toast="静态原型：发送里程碑计划卡">发里程碑计划</span>
+      <span class="quick" data-toast="静态原型：发送任务详情卡">发任务卡片</span>
+      <span class="quick" data-toast="静态原型：申请平台介入（工单）">申请平台介入</span>
+    </div>
+    <div class="inputbar">
+      <span class="sq" data-toast="静态原型：更多（图片 / 文件 / 位置 / 任务卡片）">＋</span>
+      <span class="pin">输入消息…<span class="cursor"></span></span>
+      <span class="sq" style="background:var(--blue);color:#fff" data-toast="静态原型：发送消息（WebSocket；断线重连后按序号补拉）">➤</span>
+    </div>
+    <div class="hi" style="background:#fff"><i></i></div>
+  </div>
+  <div class="cap">
+    <span class="no">屏 10</span>
+    <div class="nm">聊天会话页</div>
+    <div class="rt">pages/im/chat?uid=…（分包）</div>
+    <div class="sec">我方右蓝气泡 / 对方左灰气泡 · 系统卡片「对方已被平台提示：请勿脱离平台交易」· 底部输入框</div>
+  </div>
+</section>
+
+<!-- ==================== 屏 11 钱包（简版） ==================== -->
+<section class="screen" id="s11" data-name="钱包（简版）">
+  <div class="phone">
+    <div class="sbar"><span>9:41</span><span class="island"></span>
+      <span class="sb-r"><span class="g5">5G</span><span class="bars"><i></i><i></i><i></i><i></i></span><span class="batt"><i></i></span></span>
+    </div>
+    <div class="hd">
+      <div class="ic" data-goto="s1" title="返回：首页">←</div>
+      <div class="t">钱包</div>
+      <div class="ic" data-toast="静态原型：账单明细 / 开票（小程序仅做只读展示）">🧾</div>
+    </div>
+
+    <div class="vp">
+      <div class="wallet">
+        <div class="wl">可用余额（可提现）</div>
+        <div class="wv">¥4,215.00</div>
+        <div class="wr">
+          <div><div class="k">冻结中（托管）</div><div class="v2">¥3,800.00</div></div>
+          <div><div class="k">累计收入</div><div class="v2">¥18,650.00</div></div>
+          <div><div class="k">本月抽成</div><div class="v2">−¥412.50</div></div>
+        </div>
+      </div>
+
+      <div class="row" style="padding:0 12px;gap:9px">
+        <button class="btn ghost" style="height:42px;font-size:14px" data-toast="静态原型：小程序内⛔不支持提现，请前往 App 或电脑端">提现</button>
+        <button class="btn ghost" style="height:42px;font-size:14px" data-toast="静态原型：小程序内⛔不支持支付宝，仅支持微信支付">充值</button>
+      </div>
+
+      <div class="notice red" style="margin-top:12px">
+        <span class="ni">🚫</span>
+        <div><b>提现请前往 App 或电脑端</b><br>
+        小程序不支持提现，也<b>不支持支付宝</b>；小程序内支付仅走微信支付（JSAPI）。</div>
+        <div class="nt">
+          <button class="btn xs" data-toast="已复制电脑端钱包链接：https://task.example.com/wallet（静态原型仅演示文案）">📋 复制电脑端链接</button>
+          <button class="btn ghost xs" data-toast="静态原型：打开微信「服务通知」查看结算到账提醒">查看到账通知</button>
+        </div>
+      </div>
+
+      <div class="sechd"><span class="bar"></span>资金流水<span class="r">近 30 天 · 双分录记账</span></div>
+
+      <div class="flow">
+        <span class="fic" style="background:var(--green-l)">💰</span>
+        <div class="fb">
+          <div class="f1">订单结算 <span class="tag t-green" style="height:17px;font-size:10px">已结算</span></div>
+          <div class="f2">TK20261008003 · 门店小程序首页改版 · 10-14 16:40</div>
+        </div>
+        <span class="amt in">+¥3,629.00</span>
+      </div>
+
+      <div class="flow">
+        <span class="fic" style="background:var(--red-l)">📉</span>
+        <div class="fb">
+          <div class="f1">平台抽成（4.5%）</div>
+          <div class="f2">TK20261008003 · 基准 5% − 良好等级 0.5% · 10-14 16:40</div>
+        </div>
+        <span class="amt out">−¥171.00</span>
+      </div>
+
+      <div class="flow">
+        <span class="fic" style="background:var(--amber-l)">🔒</span>
+        <div class="fb">
+          <div class="f1">托管冻结</div>
+          <div class="f2">TK20261015001 · 开发一个小程序商城后台 · 10-15 09:12</div>
+        </div>
+        <span class="amt frz">−¥3,800.00</span>
+      </div>
+
+      <div class="flow">
+        <span class="fic" style="background:var(--blue-l)">🏦</span>
+        <div class="fb">
+          <div class="f1">提现到微信零钱 <span class="tag t-blue" style="height:17px;font-size:10px">T+1</span></div>
+          <div class="f2">10-14 18:02 发起 · 预计 10-15 到账（良好等级 T+1）</div>
+        </div>
+        <span class="amt out">−¥2,000.00</span>
+      </div>
+
+      <div class="flow">
+        <span class="fic" style="background:var(--green-l)">↩️</span>
+        <div class="fb">
+          <div class="f1">订单退款（发单方取消）</div>
+          <div class="f2">TK20261001005 · 超期未选定，已流标退款 · 10-13</div>
+        </div>
+        <span class="amt in">+¥180.00</span>
+      </div>
+
+      <div class="flow">
+        <span class="fic" style="background:var(--purple-l)">📦</span>
+        <div class="fb">
+          <div class="f1">批次结算（按量 · 1/3 篇）</div>
+          <div class="f2">TK20261012007 · 公众号长文 · 10-12</div>
+        </div>
+        <span class="amt in">+¥114.00</span>
+      </div>
+
+      <div class="card" style="text-align:center;padding:13px">
+        <div class="xs mut">金额一律以<b>字符串</b>传输，避免多端浮点精度差异（§5.15.11）</div>
+      </div>
+    </div>
+
+    <div class="tabbar">
+      <div class="tabrow">
+        <div class="tab" data-goto="s1"><span class="ti">🏠</span>首页</div>
+        <div class="tab" data-goto="s6"><span class="ti">📋</span>任务</div>
+        <div class="tab" data-goto="s9"><span class="ti">💬</span>消息<span class="bdg">3</span></div>
+        <div class="tab on" data-goto="s11"><span class="ti">👤</span>我的</div>
+      </div>
+      <div class="hi"><i></i></div>
+    </div>
+  </div>
+  <div class="cap">
+    <span class="no">屏 11</span>
+    <div class="nm">钱包（简版）</div>
+    <div class="rt">pages/wallet/index（分包）</div>
+    <div class="sec">可用余额 / 冻结中 / 累计收入 · 流水（结算 / 退款 / 提现 / 抽成）· 底部提示「提现请前往 App 或电脑端」</div>
+  </div>
+</section>
+
+<!-- ==================== 屏 12 信誉分中心 ==================== -->
+<section class="screen" id="s12" data-name="信誉分中心">
+  <div class="phone">
+    <div class="sbar"><span>9:41</span><span class="island"></span>
+      <span class="sb-r"><span class="g5">5G</span><span class="bars"><i></i><i></i><i></i><i></i></span><span class="batt"><i></i></span></span>
+    </div>
+    <div class="hd">
+      <div class="ic" data-goto="s11" title="返回：钱包">←</div>
+      <div class="t">信誉分中心</div>
+      <div class="ic" data-toast="静态原型：信誉分规则说明（§4.9 全部计分表）">?</div>
+    </div>
+
+    <div class="vp">
+      <div class="scorehero">
+        <div class="num">78<small>分</small></div>
+        <div class="lv">良好 🔵</div>
+        <div class="tip">再做 <b>2 单好评</b> 可升到「优秀 🟢（80 分）」</div>
+        <div class="pbar"><i></i></div>
+        <div class="plab"><span>良好 70</span><span>当前 78</span><span>优秀 80</span></div>
+      </div>
+
+      <div class="notice blue" style="margin-top:0">
+        <span class="ni">ℹ️</span>
+        <div>初始分 <b>60</b>（一般），区间 0–100，<b>发单与接单双向计分、同一账号一本账</b>。
+        新用户前 3 单为「新手单」，享固定曝光位（冷启动保护）。</div>
+      </div>
+
+      <div class="sechd"><span class="bar"></span>权益对照<span class="r">§4.9.2 等级与权益矩阵</span></div>
+      <div class="card tight" style="padding:8px 9px">
+        <table class="benefit">
+          <thead>
+            <tr><th>权益项</th><th>当前 · 良好 🔵<small>70–79 分</small></th><th>下一级 · 优秀 🟢<small>80–100 分</small></th></tr>
+          </thead>
+          <tbody>
+            <tr><td>进行中任务上限</td><td class="now">5 单</td><td class="next">8 单</td></tr>
+            <tr><td>排序权重</td><td class="now">×1.3</td><td class="next">×1.6</td></tr>
+            <tr><td>抽成修正</td><td class="now">−0.5%<small>基准 5% → 4.5%</small></td><td class="next">−1.0%<small>基准 5% → 4.0%</small></td></tr>
+            <tr><td>提现周期</td><td class="now">T+1</td><td class="next">T+0</td></tr>
+            <tr><td>抢单门槛</td><td class="now">✅ 全部可抢</td><td class="next">✅ 含高价单</td></tr>
+            <tr><td>平台介入</td><td class="now">正常</td><td class="next">快车道</td></tr>
+            <tr><td>保证金</td><td class="now">无需缴纳</td><td class="next">无需缴纳</td></tr>
+          </tbody>
+        </table>
+        <div class="xs mut mt8">⚠️ 若掉到「较差 🟠（40–59）」：上限降为 1 单、仅限 ≤500 元任务、排序 ×0.5、抽成 <b>+2.0%</b>、提现 <b>T+7</b>、需缴保证金。</div>
+      </div>
+
+      <div class="sechd"><span class="bar" style="background:var(--red)"></span>扣分与加分明细<span class="r">credit_log</span></div>
+
+      <div class="clog">
+        <span class="cnum up">+3</span>
+        <div class="cb"><div class="c1">完成订单并获 5 星好评</div>
+          <div class="c2">TK20261015001 · 10-15 11:20</div></div>
+      </div>
+      <div class="clog">
+        <span class="cnum up">+5</span>
+        <div class="cb"><div class="c1">连续 5 单零异常（第 2 次触发）</div>
+          <div class="c2">batch:5 · 10-15 11:20</div></div>
+      </div>
+      <div class="clog">
+        <span class="cnum up">+2</span>
+        <div class="cb"><div class="c1">高价值订单（≥¥5,000）完成额外加分</div>
+          <div class="c2">TK20261013009 · 10-14 20:05 · 已人工抽查</div></div>
+      </div>
+      <div class="clog">
+        <span class="cnum up">+3</span>
+        <div class="cb"><div class="c1">完成订单并获 5 星好评</div>
+          <div class="c2">TK20261008003 · 10-14 17:02</div></div>
+      </div>
+      <div class="clog">
+        <span class="cnum down">−3</span>
+        <div class="cb"><div class="c1">交付被驳回（责任在己）· 单订单累计 1/3 次</div>
+          <div class="c2">TK20261005002 · 10-11 09:41</div></div>
+      </div>
+      <div class="clog">
+        <span class="cnum up">+2</span>
+        <div class="cb"><div class="c1">完成订单（超时默认好评，视同 4 星）</div>
+          <div class="c2">TK20261001005 · 10-10 15:30</div></div>
+      </div>
+      <div class="clog">
+        <span class="cnum up">+2</span>
+        <div class="cb"><div class="c1">时间衰减：连续 30 天无违规（上限恢复到 70 分）</div>
+          <div class="c2">decay:30d · 10-01 00:00</div></div>
+      </div>
+      <div class="clog">
+        <span class="cnum up">+15</span>
+        <div class="cb"><div class="c1">申诉成功：原判有误，扣分全额回滚</div>
+          <div class="c2">TK20260928001 · 10-01 10:12</div></div>
+      </div>
+      <div class="clog">
+        <span class="cnum up">+2</span>
+        <div class="cb"><div class="c1">申诉成功补偿（限 7 天内、一次性）</div>
+          <div class="c2">appeal:bonus · 10-01 10:12</div></div>
+      </div>
+      <div class="clog">
+        <span class="cnum down">−15</span>
+        <div class="cb"><div class="c1">逾期未交付（可申诉）</div>
+          <div class="c2">TK20260928001 · 09-30 23:59</div></div>
+      </div>
+      <div class="clog">
+        <span class="cnum down">−10</span>
+        <div class="cb"><div class="c1">中标后主动放弃（未开始履约）</div>
+          <div class="c2">TK20260915004 · 09-18 14:22</div></div>
+      </div>
+
+      <div class="card" style="text-align:center;padding:13px">
+        <div class="xs mut">初始 60 分 → 当前 78 分 · 共 47 条记录，此处展示最近 11 条</div>
+        <button class="btn ghost xs" style="margin:9px auto 0" data-toast="静态原型：查看全部 credit_log（含操作人、变动前后分值与等级）">查看全部记录</button>
+      </div>
+    </div>
+
+    <div class="tabbar">
+      <div class="tabrow">
+        <div class="tab" data-goto="s1"><span class="ti">🏠</span>首页</div>
+        <div class="tab" data-goto="s6"><span class="ti">📋</span>任务</div>
+        <div class="tab" data-goto="s9"><span class="ti">💬</span>消息<span class="bdg">3</span></div>
+        <div class="tab on" data-goto="s12"><span class="ti">👤</span>我的</div>
+      </div>
+      <div class="hi"><i></i></div>
+    </div>
+  </div>
+  <div class="cap">
+    <span class="no">屏 12</span>
+    <div class="nm">信誉分中心</div>
+    <div class="rt">pages/credit/index（UC-U-80~85）</div>
+    <div class="sec">大号分数 78 · 徽章「良好 🔵」· 距下一等级进度条 · 权益对照卡（5/×1.3/−0.5%/T+1 → 8/×1.6/−1.0%/T+0）· 扣分明细</div>
+  </div>
+</section>
+
+<!-- ==================== 屏 13 实名认证 ==================== -->
+<section class="screen" id="s13" data-name="实名认证">
+  <div class="phone">
+    <div class="sbar"><span>9:41</span><span class="island"></span>
+      <span class="sb-r"><span class="g5">5G</span><span class="bars"><i></i><i></i><i></i><i></i></span><span class="batt"><i></i></span></span>
+    </div>
+    <div class="hd">
+      <div class="ic" data-goto="s12" title="返回：信誉分中心">←</div>
+      <div class="t">实名认证</div>
+      <div class="ic" data-toast="静态原型：《实名认证与生物识别信息处理规则》全文">?</div>
+    </div>
+
+    <div class="vp">
+      <div class="notice blue">
+        <span class="ni">🆔</span>
+        <div>按《网络安全法》《个人信息保护法》要求，<b>接单、提现、发单前必须完成实名认证</b>；
+        认证通过后信誉分不变，但可获得「已实名 ✅」标识，提升中标率。</div>
+      </div>
+
+      <div class="sechd"><span class="bar"></span>三种状态（静态并列展示）<span class="r">真实页面按账号状态显示其一</span></div>
+
+      <div class="vcard st-off">
+        <span class="vchip off">未认证</span>
+        <div class="vh">
+          <span class="vico">⚪</span>
+          <div>
+            <div class="vt">未认证</div>
+            <div class="vs">无法接单、报价与提现；仅可浏览任务</div>
+          </div>
+        </div>
+        <div class="hr"></div>
+        <div class="xs mut">状态码：<code>UNVERIFIED</code> · 剩余可用次数：—</div>
+        <button class="btn ghost sm mt8" style="width:100%" data-toast="静态原型：去认证（未认证态 CTA）">去认证</button>
+      </div>
+
+      <div class="vcard st-ing">
+        <span class="vchip ing">审核中</span>
+        <div class="vh">
+          <span class="vico">🟡</span>
+          <div>
+            <div class="vt">审核中</div>
+            <div class="vs">人脸核身已通过，等待人工复核身份证信息</div>
+          </div>
+        </div>
+        <div class="hr"></div>
+        <div class="kv"><span class="k">提交时间</span><span class="v">2026-10-15 09:20</span></div>
+        <div class="kv"><span class="k">预计完成</span><span class="v hl">2 小时内（工作日 9:00-21:00）</span></div>
+        <div class="kv"><span class="k">状态码</span><span class="v"><code>PENDING_REVIEW</code></span></div>
+        <div class="notice amber" style="margin:10px 0 0"><span class="ni">⏳</span>
+          <div>审核中暂不能接单；可先浏览任务，通过后会收到<b>订阅消息</b>提醒（需你已授权订阅）。</div></div>
+      </div>
+
+      <div class="vcard st-on">
+        <span class="vchip on">已认证</span>
+        <div class="vh">
+          <span class="vico">🟢</span>
+          <div>
+            <div class="vt">已认证 ✅</div>
+            <div class="vs">可正常接单、报价、提现</div>
+          </div>
+        </div>
+        <div class="hr"></div>
+        <div class="kv"><span class="k">姓名</span><span class="v">张**</span></div>
+        <div class="kv"><span class="k">证件</span><span class="v">身份证 4***********1234</span></div>
+        <div class="kv"><span class="k">认证方式</span><span class="v">微信人脸核身 + 人工复核</span></div>
+        <div class="kv"><span class="k">认证时间</span><span class="v">2026-10-15 11:02</span></div>
+        <div class="kv"><span class="k">状态码</span><span class="v"><code>VERIFIED</code></span></div>
+      </div>
+
+      <div class="sechd"><span class="bar" style="background:#07C160"></span>微信人脸核身<span class="r">小程序独有能力</span></div>
+      <div class="card tight">
+        <div class="xs mut" style="line-height:1.7">调用微信官方人脸核身（<code>wx.startFacialRecognitionVerify</code>）完成活体检测，
+        <b>人脸比对在微信侧完成，平台不留存人脸底图与视频</b>；每次核身均需你主动触发并单独授权。</div>
+        <button class="btn wx mt10" data-toast="静态原型：唤起微信人脸核身（需用户主动触发 + 每次单独授权；小程序名下有权限才可调用）">🟢 微信人脸核身</button>
+        <button class="btn ghost sm mt8" style="width:100%" data-toast="静态原型：降级通道 —— 上传身份证正反面走人工审核（不做人脸）">改走人工审核（上传证件照片）</button>
+        <div class="xs mut mt8">⚠️ 人脸核身需小程序主体具备对应权限；若未开通或用户拒绝，必须保留人工审核通道作为降级（否则用户被彻底卡死）。</div>
+      </div>
+
+      <div class="privacy">
+        <div class="ph">🔐 隐私授权说明</div>
+        <ul>
+          <li><b>收集的信息</b>：姓名、身份证号、人脸生物特征（活体检测视频由微信侧处理，平台仅接收核验结果）。</li>
+          <li><b>使用目的</b>：仅用于实名认证与法律法规合规要求，⛔ 不用于营销、不用于画像、不向第三方提供。</li>
+          <li><b>保存期限</b>：核验结果与认证状态长期保存至账号注销；人脸底图不由本平台保存。</li>
+          <li><b>你的权利</b>：可随时在「设置 → 账号安全」查看、撤回授权或申请注销账号。</li>
+          <li><span class="sep-tag">单独同意</span>人脸生物特征属于<b>敏感个人信息</b>，依据《个人信息保护法》第 29 条，需取得你的<b>单独同意</b>（不与其他授权捆绑）。</li>
+          <li><b>拒绝的后果</b>：不同意人脸核身，仅失去该项便捷通道，<b>不影响</b>你浏览任务与使用其他功能；可改用人工审核。</li>
+        </ul>
+        <div class="cbxrow" style="margin-top:9px" data-toast="静态原型：单独同意勾选框（敏感个人信息必须单独同意，且不得默认勾选）">
+          <span class="cbx">　</span>
+          <span class="tx2">我已阅读并<b>单独同意</b>《实名认证与生物识别信息处理规则》，同意平台处理我的人脸生物识别信息用于实名认证。</span>
+        </div>
+        <div class="xs mut mt8">注：未勾选时「微信人脸核身」按钮应保持禁用（原型中为便于演示仍可点击）。</div>
+      </div>
+      <div style="height:6px"></div>
+    </div>
+
+    <div class="tabbar">
+      <div class="tabrow">
+        <div class="tab" data-goto="s1"><span class="ti">🏠</span>首页</div>
+        <div class="tab" data-goto="s6"><span class="ti">📋</span>任务</div>
+        <div class="tab" data-goto="s9"><span class="ti">💬</span>消息<span class="bdg">3</span></div>
+        <div class="tab on" data-goto="s13"><span class="ti">👤</span>我的</div>
+      </div>
+      <div class="hi"><i></i></div>
+    </div>
+  </div>
+  <div class="cap">
+    <span class="no">屏 13</span>
+    <div class="nm">实名认证</div>
+    <div class="rt">pages/verify/index</div>
+    <div class="sec">未认证 / 审核中 / 已认证 三态卡片 · 「微信人脸核身」按钮 + 人工审核降级 · 隐私说明含「单独同意」</div>
+  </div>
+</section>
+
+<!-- ==================== 屏 14 状态图例页（设计说明用） ==================== -->
+<section class="screen" id="s14" data-name="状态图例页（设计说明用）">
+  <div class="phone">
+    <div class="sbar"><span>9:41</span><span class="island"></span>
+      <span class="sb-r"><span class="g5">5G</span><span class="bars"><i></i><i></i><i></i><i></i></span><span class="batt"><i></i></span></span>
+    </div>
+    <div class="hd">
+      <div class="ic" data-goto="s1" title="返回：首页">←</div>
+      <div class="t">任务状态图例（18）</div>
+      <div class="ic" data-toast="静态原型：设计说明页，不是真实小程序页面">📐</div>
+    </div>
+
+    <div class="vp">
+      <div class="notice blue" style="margin-top:12px">
+        <span class="ni">📐</span>
+        <div><b>本屏是设计说明页，不是真实页面。</b>用于统一移动端状态标签的<b>颜色语义与文案</b>：
+        按 5 个生命周期域分组，每域一个主色，域内用深浅/实心空心区分「进行中 / 待处理 / 已终结」。</div>
+      </div>
+
+      <!-- 草稿域 -->
+      <div class="lggroup">
+        <div class="lgh"><span class="sw" style="background:#94A3B8"></span>草稿域 · 仅发单方可见<span class="cnt">3 个</span></div>
+        <div class="sgrid">
+          <div class="sitem"><span class="dot" style="background:#94A3B8"></span><span class="cn">草稿</span><span class="cd">DRAFT</span><span class="fn">灰 · 空心标签</span></div>
+          <div class="sitem"><span class="dot" style="background:#64748B"></span><span class="cn">待审核</span><span class="cd">PENDING_AUDIT</span><span class="fn">石板灰 · 带沙漏</span></div>
+          <div class="sitem"><span class="dot" style="background:#DC2626"></span><span class="cn">审核未通过</span><span class="cd">AUDIT_REJECTED</span><span class="fn">危险红 · 可修改重提</span></div>
+        </div>
+      </div>
+
+      <!-- 招募域 -->
+      <div class="lggroup">
+        <div class="lgh"><span class="sw" style="background:#2563EB"></span>招募域 · 可被抢 / 可报价<span class="cnt">4 个</span></div>
+        <div class="sgrid">
+          <div class="sitem"><span class="dot" style="background:#F59E0B"></span><span class="cn">待托管</span><span class="cd">PENDING_ESCROW</span><span class="fn">警示橙 · 待支付</span></div>
+          <div class="sitem"><span class="dot" style="background:#2563EB"></span><span class="cn">招募中</span><span class="cd">RECRUITING</span><span class="fn">主色蓝 · 实心（抢单）</span></div>
+          <div class="sitem"><span class="dot" style="background:#3B82F6"></span><span class="cn">竞价中</span><span class="cd">BIDDING</span><span class="fn">亮蓝 · 实心（报价）</span></div>
+          <div class="sitem"><span class="dot" style="background:#7C3AED"></span><span class="cn">待选标</span><span class="cd">PENDING_SELECT</span><span class="fn">紫 · 等发单方决策</span></div>
+        </div>
+      </div>
+
+      <!-- 履约域 -->
+      <div class="lggroup">
+        <div class="lgh"><span class="sw" style="background:#0EA5E9"></span>履约域 · 资金已冻结<span class="cnt">6 个</span></div>
+        <div class="sgrid">
+          <div class="sitem"><span class="dot" style="background:#0EA5E9"></span><span class="cn">待开始</span><span class="cd">PENDING_START</span><span class="fn">天蓝 · 带倒计时</span></div>
+          <div class="sitem"><span class="dot" style="background:#2563EB"></span><span class="cn">履约中</span><span class="cd">IN_PROGRESS</span><span class="fn">主色蓝 · 实心 + 进度条</span></div>
+          <div class="sitem"><span class="dot" style="background:#F59E0B"></span><span class="cn">待验收</span><span class="cd">PENDING_ACCEPT</span><span class="fn">警示橙 · 72h 自动验收</span></div>
+          <div class="sitem"><span class="dot" style="background:#F97316"></span><span class="cn">返工中</span><span class="cd">REVISION</span><span class="fn">橙 · 显示轮次 n/2</span></div>
+          <div class="sitem"><span class="dot" style="background:#DC2626"></span><span class="cn">已逾期</span><span class="cd">OVERDUE</span><span class="fn">危险红 · 实心 + 红字倒计时</span></div>
+          <div class="sitem"><span class="dot" style="background:#B91C1C"></span><span class="cn">争议中</span><span class="cd">DISPUTED</span><span class="fn">深红 · 争议份额冻结</span></div>
+        </div>
+      </div>
+
+      <!-- 收尾域 -->
+      <div class="lggroup">
+        <div class="lgh"><span class="sw" style="background:#16A34A"></span>收尾域 · 待分账 / 已分账<span class="cnt">2 个</span></div>
+        <div class="sgrid">
+          <div class="sitem"><span class="dot" style="background:#16A34A"></span><span class="cn">已完成</span><span class="cd">COMPLETED</span><span class="fn">成功绿 · 待结算</span></div>
+          <div class="sitem"><span class="dot" style="background:#15803D"></span><span class="cn">已结算</span><span class="cd">SETTLED</span><span class="fn">深绿 · 实心 + 金额</span></div>
+        </div>
+      </div>
+
+      <!-- 终态 -->
+      <div class="lggroup">
+        <div class="lgh"><span class="sw" style="background:#64748B"></span>终态 · 归档<span class="cnt">3 个</span></div>
+        <div class="sgrid">
+          <div class="sitem"><span class="dot" style="background:#64748B"></span><span class="cn">已关闭</span><span class="cd">CLOSED</span><span class="fn">灰 · 降饱和</span></div>
+          <div class="sitem"><span class="dot" style="background:#94A3B8"></span><span class="cn">已取消</span><span class="cd">CANCELLED</span><span class="fn">浅灰 · 已退款</span></div>
+          <div class="sitem"><span class="dot" style="background:#78716C"></span><span class="cn">已流标</span><span class="cd">EXPIRED</span><span class="fn">灰褐 · 已退款</span></div>
+        </div>
+      </div>
+
+      <div class="sechd"><span class="bar"></span>移动端如何渲染状态标签</div>
+      <div class="card tight" style="font-size:12.2px;line-height:1.75;color:var(--ink2)">
+        <b>1）颜色 = 域，形状 = 阶段。</b>同一域内用同一色系：招募域蓝、履约域蓝→橙→红递进（越接近违约越红）、
+        收尾域绿、终态灰。列表卡片只用<b>小圆角标签</b>（高度 20px），详情页用<b>实心标签 + 状态码</b>。<br>
+        <b>2）主文案用中文，状态码仅作辅助。</b>如「履约中 <span class="tag t-gray" style="height:17px;font-size:10px">IN_PROGRESS</span>」，
+        状态码用等宽小字，便于客服与研发对单。<br>
+        <b>3）需要动作的状态必须带 CTA。</b>待开始→扫码签到、履约中→去交付、待验收→催一催、返工→重新交付、待托管→去支付。<br>
+        <b>4）时间敏感状态必须带倒计时。</b>竞价中/待选标（剩余报价时间）、履约中（交付倒计时）、待验收（自动验收倒计时）；
+        <b>≤24 小时转红色</b>。<br>
+        <b>5）⛔ 终态不再展示任何操作按钮</b>，仅保留「查看详情 / 复盘 / 申诉（7 天内）」；<br>
+        <b>6）⛔ 争议中（DISPUTED）必须在订单卡顶部加红色横幅</b>，并冻结相关份额，避免用户误以为还能正常结算。<br>
+        <b>7）状态由服务端下发枚举，客户端只做映射</b>（颜色/文案/CTA 三张映射表），⛔ 不在端上拼状态字符串。
+      </div>
+      <div style="height:8px"></div>
+    </div>
+
+    <div class="hi" style="background:#fff"><i></i></div>
+  </div>
+  <div class="cap">
+    <span class="no">屏 14</span>
+    <div class="nm">状态图例页（设计说明，非真实页面）</div>
+    <div class="rt">docs · design reference</div>
+    <div class="sec">18 个任务状态按 5 个域（草稿 / 招募 / 履约 / 收尾 / 终态）用色块列出，附移动端渲染规则 7 条</div>
+  </div>
+</section>
+
+</div><!-- /gallery -->
+
+<!-- ============================ 底部图例 ============================ -->
+<section class="legend">
+  <h2>图例 · 状态色 / 信誉等级色</h2>
+  <div class="lsub">屏 14 的状态色板与 §4.9.2 的信誉等级色板合并视图；所有颜色均为纯 CSS 色值，不依赖任何图片。</div>
+
+  <div class="lgcols">
+    <div>
+      <h4>任务状态色（按 5 个生命周期域）<span class="line"></span></h4>
+      <div class="chipwrap">
+        <span class="lchip"><span class="sw" style="background:#94A3B8"></span><span><span class="l1">草稿域</span><br><span class="l2">DRAFT / PENDING_AUDIT / AUDIT_REJECTED</span></span></span>
+        <span class="lchip"><span class="sw" style="background:#2563EB"></span><span><span class="l1">招募域</span><br><span class="l2">PENDING_ESCROW / RECRUITING / BIDDING / PENDING_SELECT</span></span></span>
+        <span class="lchip"><span class="sw" style="background:#0EA5E9"></span><span><span class="l1">履约域</span><br><span class="l2">PENDING_START / IN_PROGRESS / PENDING_ACCEPT / REVISION / OVERDUE / DISPUTED</span></span></span>
+        <span class="lchip"><span class="sw" style="background:#16A34A"></span><span><span class="l1">收尾域</span><br><span class="l2">COMPLETED / SETTLED</span></span></span>
+        <span class="lchip"><span class="sw" style="background:#64748B"></span><span><span class="l1">终态</span><br><span class="l2">CLOSED / CANCELLED / EXPIRED</span></span></span>
+      </div>
+
+      <h4 style="margin-top:18px">语义色（全站统一）<span class="line"></span></h4>
+      <div class="chipwrap">
+        <span class="lchip"><span class="sw" style="background:#2563EB"></span><span><span class="l1">主色 · 进行/可操作</span><br><span class="l2">#2563EB · 按钮、Tab、链接</span></span></span>
+        <span class="lchip"><span class="sw" style="background:#16A34A"></span><span><span class="l1">成功 · 完成/结算</span><br><span class="l2">#16A34A · 已认证、已结算</span></span></span>
+        <span class="lchip"><span class="sw" style="background:#F59E0B"></span><span><span class="l1">警示 · 待处理</span><br><span class="l2">#F59E0B · 待验收、限制提示</span></span></span>
+        <span class="lchip"><span class="sw" style="background:#DC2626"></span><span><span class="l1">危险 · 逾期/争议</span><br><span class="l2">#DC2626 · 倒计时 &lt;24h、必过项</span></span></span>
+        <span class="lchip"><span class="sw" style="background:#7C3AED"></span><span><span class="l1">强调 · 竞拍/官方</span><br><span class="l2">#7C3AED · 待选标、平台客服</span></span></span>
+        <span class="lchip"><span class="sw" style="background:#64748B"></span><span><span class="l1">中性 · 终态</span><br><span class="l2">#64748B · 已关闭、已取消</span></span></span>
+      </div>
+    </div>
+
+    <div>
+      <h4>信誉等级色（§4.9.2 等级与权益矩阵）<span class="line"></span></h4>
+      <div class="chipwrap">
+        <span class="lchip"><span class="sw" style="background:#1F2937"></span><span><span class="l1">⛔ 黑名单 · 0–39</span><br><span class="l2">上限 0 · 禁止抢单 · 提现冻结</span></span></span>
+        <span class="lchip"><span class="sw" style="background:#F97316"></span><span><span class="l1">🟠 较差 · 40–59</span><br><span class="l2">上限 1 · ×0.5 · 抽成 +2.0% · T+7</span></span></span>
+        <span class="lchip"><span class="sw" style="background:#EAB308"></span><span><span class="l1">🟡 一般 · 60–69（初始 60）</span><br><span class="l2">上限 3 · ×1.0 · 基准 · T+3</span></span></span>
+        <span class="lchip"><span class="sw" style="background:#2563EB"></span><span><span class="l1">🔵 良好 · 70–79</span><br><span class="l2">上限 5 · ×1.3 · 抽成 −0.5% · T+1</span></span></span>
+        <span class="lchip"><span class="sw" style="background:#16A34A"></span><span><span class="l1">🟢 优秀 · 80–100</span><br><span class="l2">上限 8 · ×1.6 · 抽成 −1.0% · T+0</span></span></span>
+        <span class="lchip"><span class="sw" style="background:#7C3AED"></span><span><span class="l1">⭐ 平台认证 · 人工授予</span><br><span class="l2">上限 +2 · 额外加权 · 抽成可议</span></span></span>
+      </div>
+
+      <h4 style="margin-top:18px">任务形态 × 计酬方式（§4.10.3 / §4.10.4）<span class="line"></span></h4>
+      <table class="lgtab">
+        <thead><tr><th>形态</th><th>标签色</th><th>触发的变化</th></tr></thead>
+        <tbody>
+          <tr><td><code>ONLINE</code> 线上</td><td><span class="tag t-blue">线上 ONLINE</span></td><td>无需地点；交付限文件 / 线上服务</td></tr>
+          <tr><td><code>OFFLINE</code> 线下</td><td><span class="tag t-amber">线下 OFFLINE</span></td><td>必填服务地点 + 经纬度；可选签到；可报差旅</td></tr>
+          <tr><td><code>HYBRID</code> 混合</td><td><span class="tag t-purple">混合 HYBRID</span></td><td>两类字段都要；里程碑计酬的天然场景</td></tr>
+        </tbody>
+      </table>
+      <table class="lgtab" style="margin-top:10px">
+        <thead><tr><th>计酬方式</th><th>标签色</th><th>结算粒度</th></tr></thead>
+        <tbody>
+          <tr><td><code>FIXED</code> 一口价</td><td><span class="tag t-blue">一口价 FIXED</span></td><td>一单一次（只能 GRAB 抢单）</td></tr>
+          <tr><td><code>BID</code> 竞价</td><td><span class="tag t-purple">竞拍 BID</span></td><td>一单一次（只能 BID 竞拍）</td></tr>
+          <tr><td><code>BY_QUANTITY</code> 按量</td><td><span class="tag t-blue">按量 BY_QUANTITY</span></td><td>可按批次结算（屏 7 示例：1/3 篇先结 1 篇）</td></tr>
+          <tr><td><code>BY_DAY</code> 按天</td><td><span class="tag t-gray">按天 BY_DAY</span></td><td>按天 / 按周结算</td></tr>
+          <tr><td><code>MILESTONE</code> 里程碑</td><td><span class="tag t-amber">里程碑 MILESTONE</span></td><td>按阶段结算（屏 7/8 示例：里程碑 2/3）</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="foot">
+    任务撮合平台 · 微信小程序端静态原型（14 屏 / 15 个手机框，屏 4 为成功与失败两态并排）<br>
+    单文件自包含 · 无外部 CDN / 字体 / 图片 · 图标为 emoji 或纯 CSS 图形 · 断网可直接双击打开<br>
+    数据均为拟真示例，非真实业务数据；接口与端能力依据《2026-10-15-任务撮合平台-总体设计》§4.9 / §4.10 / §4.11 / §5.15
+  </div>
+</section>
+
+</main>
+
+<!-- 单屏模式浮动翻屏 -->
+<div class="floatnav">
+  <button class="fb" id="fPrev" title="上一屏">←</button>
+  <span class="fl" id="fLabel">屏 1 / 14</span>
+  <button class="fb" id="fNext" title="下一屏">→</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  var screens = Array.prototype.slice.call(document.querySelectorAll('.screen'));
+  var idxBox  = document.getElementById('idx');
+  var gallery = document.getElementById('gallery');
+  var counter = document.getElementById('counter');
+  var fLabel  = document.getElementById('fLabel');
+  var btnSingle = document.getElementById('btnSingle');
+  var btnHot    = document.getElementById('btnHot');
+  var btnPrev   = document.getElementById('btnPrev');
+  var btnNext   = document.getElementById('btnNext');
+  var fPrev     = document.getElementById('fPrev');
+  var fNext     = document.getElementById('fNext');
+  var toastEl   = document.getElementById('toast');
+
+  var NAMES = screens.map(function (s) { return s.getAttribute('data-name') || s.id; });
+  var active = 0;
+  var single = false;
+  var toastTimer = null;
+
+  /* ---------- 页面索引 ---------- */
+  screens.forEach(function (s, i) {
+    var b = document.createElement('button');
+    b.className = 'ib';
+    b.setAttribute('data-i', String(i));
+    b.innerHTML = '<b>' + (i + 1) + '</b>' + NAMES[i];
+    b.title = '跳到屏 ' + (i + 1) + '：' + NAMES[i];
+    b.addEventListener('click', function () { goTo(i); });
+    idxBox.appendChild(b);
+  });
+  var chips = Array.prototype.slice.call(idxBox.querySelectorAll('.ib'));
+
+  function syncIdx() {
+    chips.forEach(function (c, i) { c.classList.toggle('on', i === active); });
+    counter.textContent = '屏 ' + (active + 1) + ' / ' + screens.length;
+    fLabel.textContent = '屏 ' + (active + 1) + ' / ' + screens.length + ' · ' + NAMES[active];
+    btnPrev.disabled = active === 0;
+    btnNext.disabled = active === screens.length - 1;
+    var on = chips[active];
+    if (on && idxBox.scrollWidth > idxBox.clientWidth) {
+      var l = on.offsetLeft - idxBox.clientWidth / 2 + on.offsetWidth / 2;
+      idxBox.scrollTo({ left: Math.max(0, l), behavior: 'smooth' });
+    }
+  }
+
+  /* ---------- 跳转 ---------- */
+  var syncLock = false;
+  var lockTimer = null;
+  function lockSync(ms) {
+    syncLock = true;
+    window.clearTimeout(lockTimer);
+    lockTimer = window.setTimeout(function () { syncLock = false; syncIdx(); }, ms);
+  }
+  function goTo(i, flash) {
+    if (i < 0 || i >= screens.length) return;
+    active = i;
+    if (single) {
+      screens.forEach(function (s, k) { s.classList.toggle('on', k === i); });
+      screens[i].scrollIntoView({ behavior: 'auto', block: 'start' });
+      syncIdx();
+    } else {
+      /* 平滑滚动动画期间禁止「滚动高亮」改写索引，否则计数会在动画中乱跳 */
+      lockSync(900);
+      screens[i].scrollIntoView({ behavior: 'smooth', block: 'start' });
+      syncIdx();
+    }
+    if (flash !== false) {
+      screens[i].classList.remove('flash');
+      void screens[i].offsetWidth;
+      screens[i].classList.add('flash');
+      window.setTimeout(function () { screens[i].classList.remove('flash'); }, 1200);
+    }
+  }
+
+  document.addEventListener('click', function (e) {
+    var hot = e.target.closest ? e.target.closest('[data-goto]') : null;
+    if (hot) {
+      e.preventDefault();
+      var id = hot.getAttribute('data-goto');
+      var i = screens.map(function (s) { return s.id; }).indexOf(id);
+      if (i >= 0) goTo(i);
+      return;
+    }
+    /* 勾选框要先于 data-toast 判定（.cbx 的父级 .cbxrow 带 data-toast） */
+    var cb = e.target.closest ? e.target.closest('.cbx') : null;
+    if (cb) {
+      e.preventDefault();
+      var on = cb.classList.toggle('on');
+      cb.textContent = on ? '✓' : '　';
+      var row = cb.closest('.cbxrow');
+      if (row) row.classList.toggle('done', on);
+      return;
+    }
+    var t = e.target.closest ? e.target.closest('[data-toast]') : null;
+    if (t) {
+      e.preventDefault();
+      showToast(t.getAttribute('data-toast'));
+      return;
+    }
+  });
+
+  function showToast(msg) {
+    toastEl.textContent = 'ⓘ ' + msg;
+    toastEl.classList.add('on');
+    window.clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(function () { toastEl.classList.remove('on'); }, 2600);
+  }
+
+  /* ---------- 单屏模式 ---------- */
+  function setSingle(v) {
+    single = v;
+    document.body.classList.toggle('single', v);
+    btnSingle.classList.toggle('on', v);
+    btnSingle.textContent = v ? '▤ 显示全部屏' : '▣ 仅看单屏';
+    screens.forEach(function (s, k) { s.classList.toggle('on', v ? k === active : true); });
+    if (v) {
+      screens[active].scrollIntoView({ behavior: 'auto', block: 'start' });
+    } else {
+      screens.forEach(function (s) { s.classList.remove('on'); });
+      screens[active].scrollIntoView({ behavior: 'auto', block: 'start' });
+    }
+    syncIdx();
+  }
+  btnSingle.addEventListener('click', function () { setSingle(!single); });
+  btnHot.addEventListener('click', function () {
+    var on = document.body.classList.toggle('hot');
+    btnHot.classList.toggle('on', on);
+    showToast(on ? '已高亮全部可点击热区（蓝色虚线框）' : '已关闭热区高亮');
+  });
+  btnPrev.addEventListener('click', function () { goTo(active - 1); });
+  btnNext.addEventListener('click', function () { goTo(active + 1); });
+  fPrev.addEventListener('click', function () { goTo(active - 1); });
+  fNext.addEventListener('click', function () { goTo(active + 1); });
+
+  /* ---------- 键盘 ---------- */
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'ArrowLeft') { goTo(active - 1); }
+    else if (e.key === 'ArrowRight') { goTo(active + 1); }
+    else if (e.key === 'Escape' && single) { setSingle(false); }
+  });
+
+  /* ---------- 滚动高亮（画廊模式）---------- */
+  var ticking = false;
+  window.addEventListener('scroll', function () {
+    if (single || syncLock || ticking) return;
+    ticking = true;
+    window.requestAnimationFrame(function () {
+      ticking = false;
+      if (syncLock) return;
+      var best = 0, bestD = Infinity;
+      for (var i = 0; i < screens.length; i++) {
+        var r = screens[i].getBoundingClientRect();
+        var d = Math.abs(r.top - 140);
+        if (r.bottom > 60 && d < bestD) { bestD = d; best = i; }
+      }
+      if (best !== active) { active = best; syncIdx(); }
+    });
+  }, { passive: true });
+  /* 滚动结束（Chrome 114+）时再校正一次 */
+  if ('onscrollend' in window) {
+    window.addEventListener('scrollend', function () {
+      if (single || syncLock) return;
+      syncLock = false;
+      window.clearTimeout(lockTimer);
+      var best = 0, bestD = Infinity;
+      for (var i = 0; i < screens.length; i++) {
+        var r = screens[i].getBoundingClientRect();
+        var d = Math.abs(r.top - 140);
+        if (r.bottom > 60 && d < bestD) { bestD = d; best = i; }
+      }
+      if (best !== active) { active = best; syncIdx(); }
+    }, { passive: true });
+  }
+
+  /* ---------- 初始 ---------- */
+  /* 会话页默认滚到最新一条（真实 IM 行为） */
+  var chatVp = document.querySelector('#s10 .vp');
+  if (chatVp) chatVp.scrollTop = chatVp.scrollHeight;
+
+  syncIdx();
+  showToast('静态原型：点击蓝色热区可跳屏；顶部「仅看单屏」可逐屏评审（← → 翻屏）');
+})();
+</script>
+</body>
+</html>
