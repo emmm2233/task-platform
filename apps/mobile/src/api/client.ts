@@ -8,7 +8,7 @@ import { baseUrl } from '../platform/env';
  * ⛔ 但条件编译本身只允许出现在 src/platform/，所以这里用运行时判断 uni 是否存在，
  *    而不是 #ifdef —— 保持"差异集中在 platform/"这条纪律。
  */
-// ⭐ 类型来自 @task/shared —— 四端共用一份契约。
+// ⭐ 类型来自 @task/shared —— 四端共用同一份【手写】契约（该文件是唯一真值）。
 //    ⛔ 原先这里手写了一份 TaskSummary，那是【已记录的漂移风险点】：
 //       后端改字段名，三端要到运行时才发现。
 import type { Envelope, PageResult, TaskSummary } from '@task/shared';

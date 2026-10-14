@@ -9,7 +9,7 @@
  * （例如非法游标返回 200 + success=false）。
  * 所以这里【同时】检查 HTTP 与信封里的 success。
  */
-// ⭐ 类型来自 @task/shared —— 四端共用一份契约（由 api/openapi.yaml 自动生成）。
+// ⭐ 类型来自 @task/shared —— 四端共用同一份【手写】契约（该文件是唯一真值）。
 //    ⛔ 不要再在这里手写接口类型：后端改个字段名，前端要到运行时才发现。
 import type { Envelope, PageResult, TaskSummary } from '@task/shared';
 export type { Envelope, PageResult, TaskSummary };
