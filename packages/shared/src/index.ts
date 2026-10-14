@@ -1,4 +1,18 @@
 /**
+ * ⭐ 生成物与手写类型的关系（不写清一定会漂移）：
+ *
+ *  - `api`（来自 generated.ts）是【线上真实形状】的唯一真值，
+ *    由 api/openapi.yaml 自动生成，⛔ 不要手改。
+ *  - 本文件里的 Envelope / PageResult / TaskSummary 等是【便利别名】，
+ *    供前端日常引用（生成物的路径下标写起来很长）。
+ *
+ * ⚠️ 改后端接口的正确顺序：
+ *    改 openapi.yaml → pnpm gen:api → 再看便利别名是否要跟着调。
+ * ⛔ 反过来会造成"前端类型对、实际接口不对"，要到运行时才炸。
+ */
+export * as api from './generated';
+
+/**
  * 四端共用的接口契约类型。
  *
  * ⭐ 与后端 `api/openapi.yaml` 对齐。改后端接口时必须同步改这里 ——

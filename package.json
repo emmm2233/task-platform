@@ -1,0 +1,9 @@
+{
+  "devDependencies": {
+    "openapi-typescript": "^7.13.0"
+  },
+  "scripts": {
+    "gen:api": "openapi-typescript api/openapi.yaml -o packages/shared/src/generated.ts",
+    "check:api": "node tools/check-api-drift.mjs"
+  }
+}
