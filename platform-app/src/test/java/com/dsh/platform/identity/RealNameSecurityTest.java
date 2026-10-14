@@ -57,6 +57,16 @@ class RealNameSecurityTest {
     private StringRedisTemplate redis;
 
     /**
+     * ⭐ 用来<b>校验</b>访问审计的哈希链。
+     *
+     * <p>为什么必须有它：本测试原来只数 {@code sys_data_access_log} 的行数，
+     * 而"写入方自己算哈希、字段清单与校验方不一致"这类缺陷在行数上完全看不出来
+     * （实测 59 行 / 断 59 行）。校验能力必须被断言，否则等于没有。
+     */
+    @Autowired
+    private com.dsh.platform.identity.audit.HashChainService chain;
+
+    /**
      * ⭐ 清掉限流计数。
      *
      * <p>限流状态存在 Redis，TTL 2 小时 —— 它<b>跨测试类、跨运行都活着</b>。
@@ -214,6 +224,19 @@ class RealNameSecurityTest {
                 Integer.class, applicant.getUserId());
         assertThat(logs)
                 .as("⭐ 查看 L4 数据必须留下访问审计（等保三级：重要数据访问可追溯）")
+                .isGreaterThanOrEqualTo(1);
+
+        // ⭐⭐ 光"记了一笔"不够，还必须【校验得通过】。
+        // 独立审查实测过一类致命缺陷：写入方自己算哈希、字段清单与校验方
+        // （HashChainService.SPECS）不一致 ⇒ 该表 59 行 / 断 59 行（100%），
+        // 而当时的断言只数了行数 ⇒ 完整逃逸（狼来了 + 真篡改被淹没）。
+        // ⛔ 没有这一条，"看一眼就记一笔"只是记了一笔【验不了】的账。
+        var vr = chain.verify("sys_data_access_log", chain.currentHour());
+        assertThat(vr.isIntact())
+                .as("访问审计的哈希链必须校验通过（写方与校验方必须共用同一套字段清单）：%s", vr)
+                .isTrue();
+        assertThat(vr.total())
+                .as("本次访问必须真的进了链")
                 .isGreaterThanOrEqualTo(1);
     }
 
