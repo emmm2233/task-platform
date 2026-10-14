@@ -1,62 +1,118 @@
-# web-admin 端到端核验：登录链路的可达性。
+﻿# web-admin 端到端核验：运营管理台 → 后端（经 Vite 代理）
 #
-# 为什么管理端要单独验这条：用户端大厅是【匿名】的，管理端【没有匿名态】。
-# 登录链路不通，后面的审核台全是摆设。
+# 为什么要有这个脚本：只验证"能构建"不够 —— 构建通过但代理配错、
+# 或者前端把绝对地址写死，都只在真正联调时才暴露，而那时人会先怀疑后端。
 #
-# 用法：powershell -File scripts/verify-e2e.ps1
-#      （本机 pwsh 不在 PATH，用 powershell 或完整路径）
+# ⛔⛔ 本脚本第一版有两个致命问题，已修（都由独立审计发现）：
+#   1. 文件是 UTF-8【无 BOM】→ PowerShell 5.1 按 GBK 解码 → 语法错、解析期即死
+#      ⇒ 【这个脚本从来没有成功跑过一次】。而当时 README 里贴了"实测结果"，
+#        那段输出其实来自手工内联命令 —— 属于假证据。
+#   2. 断言只判 HTTP 200 ⇒ 毫无意义。Vite 的 SPA fallback 对【任何未知路径】
+#      都返回 index.html + 200，所以【代理完全没配】时断言照样全 PASS。
+#      实测：把那套断言打向没有配 proxy 的 dev server，它打印
+#      "端到端通过：前端能经代理取到后端数据"，而响应是 text/html。
+#
+# ⇒ 所以现在断言【三件事】，缺一不可：
+#      ① HTTP 状态码  ② Content-Type 是 application/json  ③ 信封里的 code
+#    并额外做一次【反证】：打一个不存在的接口，必须返回 JSON（= 请求确实到了后端）。
+#    若返回 HTML，说明落到了 SPA fallback ⇒ 代理没生效。
+#
+# 用法：powershell -File apps/web-admin/scripts/verify-e2e.ps1
+# 前置：后端已 package（mvn -pl platform-app -am package -DskipTests）
 
 $ErrorActionPreference = 'Stop'
-$root = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+# scripts → web-user → apps → 仓库根（少退一层会把 jar 路径算到 apps\ 下面）
+$root = Split-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) -Parent
 $jar  = Join-Path $root 'platform-app\target\platform-app-1.0.0-SNAPSHOT.jar'
 $java = 'C:\Program Files\Java\jdk-21.0.11\bin\java.exe'
+$FE_PORT = 5175
+$BE = 'http://127.0.0.1:8080'
 
-if (-not (Test-Path $jar)) { Write-Host '找不到 jar（先 package）' -ForegroundColor Red; exit 1 }
+if (-not (Test-Path $jar)) { Write-Host "找不到 jar（先 package）：$jar" -ForegroundColor Red; exit 1 }
 
-'=== 起后端 ==='
-$be = Start-Process -FilePath $java -ArgumentList '-jar', $jar -PassThru -WindowStyle Hidden
-$ok = $false
-for ($i=1; $i -le 40; $i++) {
-  Start-Sleep -Seconds 2
-  try { if ((Invoke-RestMethod 'http://127.0.0.1:8080/actuator/health' -TimeoutSec 3).status -eq 'UP') { $ok=$true; break } } catch {}
+$startedBe = $null
+$startedFe = $null
+$script:fail = 0
+
+function Assert-Api {
+    param([string]$Name, [string]$Url, [int]$WantHttp = 200, [int]$WantCode = 0)
+    $text = (& curl.exe -s -i $Url | Out-String)
+    $head = ($text -split "`r?`n")[0]
+    $http = if ($head -match 'HTTP/\d\.\d (\d{3})') { [int]$Matches[1] } else { 0 }
+    $isJson = $text -match 'Content-Type:\s*application/json'
+    $body = ($text -split "`r?`n`r?`n", 2)[1]
+    $gotCode = $null
+    if ($body -match '"code"\s*:\s*(-?\d+)') { $gotCode = [int]$Matches[1] }
+
+    $ok = ($http -eq $WantHttp) -and $isJson -and ($gotCode -eq $WantCode)
+    if (-not $ok) { $script:fail++ }
+    $mark = if ($ok) { '[OK]  ' } else { '[FAIL]' }
+    Write-Host ("  $mark $Name -> HTTP $http / JSON=$isJson / code=$gotCode  (期望 $WantHttp / JSON / $WantCode)")
 }
-if (-not $ok) { Stop-Process -Id $be.Id -Force; Write-Host '后端未起' -ForegroundColor Red; exit 1 }
-'  后端 UP'
 
-$fe = $null
 try {
-  '=== 起管理端 ==='
-  $fe = Start-Process -FilePath 'node' -ArgumentList 'node_modules\vite\bin\vite.js','--port','5175','--host','127.0.0.1' -PassThru -WindowStyle Hidden
-  $ok = $false
-  for ($i=1; $i -le 25; $i++) {
-    Start-Sleep -Seconds 2
-    try { if ((Invoke-WebRequest 'http://127.0.0.1:5175/' -TimeoutSec 3 -UseBasicParsing).StatusCode -eq 200) { $ok=$true; break } } catch {}
-  }
-  if (-not $ok) { Write-Host '管理端未起' -ForegroundColor Red; exit 1 }
-  '  管理端 UP'
+    '=== 1) 后端 ==='
+    $beUp = $false
+    try { if ((Invoke-RestMethod "$BE/actuator/health" -TimeoutSec 3).status -eq 'UP') { $beUp = $true } } catch {}
+    if ($beUp) {
+        '  复用已在运行的实例'
+    } else {
+        $startedBe = Start-Process -FilePath $java -ArgumentList '-jar', $jar -PassThru -WindowStyle Hidden
+        for ($i = 1; $i -le 40; $i++) {
+            Start-Sleep -Seconds 2
+            try { if ((Invoke-RestMethod "$BE/actuator/health" -TimeoutSec 3).status -eq 'UP') { $beUp = $true; break } } catch {}
+        }
+        if (-not $beUp) { Write-Host '  后端未起' -ForegroundColor Red; exit 1 }
+        '  已启动后端'
+    }
 
-  $fail = 0
-  '=== 登录链路可达性（从管理端端口打，验证代理）==='
-  foreach ($case in @(
-    @{ n='/account/profile 无令牌';  u='/api/v1/account/profile';            w='401' },
-    @{ n='/op 域 无令牌';            u='/api/v1/op/real-name-audits/1';      w='401' },
-    @{ n='/admin 域 无令牌';         u='/api/v1/admin/sensitive-words';      w='401' }
-  )) {
-    $c = & curl.exe -s -o NUL -w '%{http_code}' ('http://127.0.0.1:5175' + $case.u)
-    if ($c -eq $case.w) { "  [OK] $($case.n) -> HTTP $c" }
-    else { $fail++; "  [FAIL] $($case.n) -> HTTP $c (期望 $($case.w))" }
-  }
-  # 登录接口本身必须【可达】：错误凭据应是业务失败(200+success=false)，
-  # 而不是 404/401 路由不存在 —— 后者说明接口没注册或没放行。
-  $lc = & curl.exe -s -o NUL -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' 'http://127.0.0.1:5175/api/v1/auth/login'
-  if ($lc -eq '200') { '  [OK] 登录接口可达 -> HTTP 200' }
-  else { $fail++; "  [FAIL] 登录接口 -> HTTP $lc" }
+    '=== 2) 前端 dev server ==='
+    $feUp = $false
+    try { if ((Invoke-WebRequest "http://127.0.0.1:$FE_PORT/" -TimeoutSec 3 -UseBasicParsing).StatusCode -eq 200) { $feUp = $true } } catch {}
+    if (-not $feUp) {
+        $startedFe = Start-Process -FilePath 'node' -ArgumentList 'node_modules\vite\bin\vite.js', '--port', "$FE_PORT", '--host', '127.0.0.1' -WorkingDirectory (Join-Path $root 'apps\web-admin') -PassThru -WindowStyle Hidden
+        for ($i = 1; $i -le 25; $i++) {
+            Start-Sleep -Seconds 2
+            try { if ((Invoke-WebRequest "http://127.0.0.1:$FE_PORT/" -TimeoutSec 3 -UseBasicParsing).StatusCode -eq 200) { $feUp = $true; break } } catch {}
+        }
+    }
+    if (-not $feUp) { Write-Host '  前端未起' -ForegroundColor Red; exit 1 }
+    "  前端 UP（:$FE_PORT）"
 
-  if ($fail -gt 0) { Write-Host "有 $fail 项失败" -ForegroundColor Red; exit 1 }
-  Write-Host '管理端端到端通过：登录链路可达，且运营/管理域确实受保护' -ForegroundColor Green
+    '=== 3) 经代理取后端数据（三件事一起校验）==='
+    # ⭐ 管理端与用户端最大的差别：用户端大厅是【匿名】的，管理端【没有匿名态】。
+    #    所以这里三项都期望 401 —— 它验的是"登录链路可达 + 运营/管理域确实受保护"。
+    Assert-Api -Name 'GET /api/v1/account/profile'          -Url "http://127.0.0.1:$FE_PORT/api/v1/account/profile"          -WantHttp 401 -WantCode 20001
+    Assert-Api -Name 'GET /api/v1/op/real-name-audits/1'    -Url "http://127.0.0.1:$FE_PORT/api/v1/op/real-name-audits/1"    -WantHttp 401 -WantCode 20001
+    Assert-Api -Name 'GET /api/v1/admin/sensitive-words'    -Url "http://127.0.0.1:$FE_PORT/api/v1/admin/sensitive-words"    -WantHttp 401 -WantCode 20001
+
+    '=== 4) 反证：SPA fallback 不能把"代理没配"伪装成通过 ==='
+    $probe = (& curl.exe -s -i "http://127.0.0.1:$FE_PORT/api/v1/__no_such_endpoint__" | Out-String)
+    if ($probe -match 'Content-Type:\s*application/json') {
+        '  [OK]   未映射接口返回 JSON（说明请求确实经代理到了后端）'
+    } else {
+        $script:fail++
+        '  [FAIL] 未映射接口返回 HTML —— 请求落到了 Vite 的 SPA fallback，代理【没有生效】'
+    }
+
+    ''
+    if ($script:fail -gt 0) { Write-Host "有 $script:fail 项失败" -ForegroundColor Red; exit 1 }
+    Write-Host '端到端通过：HTTP / Content-Type / 信封 code 三项全部符合，且代理确实生效' -ForegroundColor Green
 }
 finally {
-  if ($fe) { Stop-Process -Id $fe.Id -Force -ErrorAction SilentlyContinue }
-  Stop-Process -Id $be.Id -Force -ErrorAction SilentlyContinue
-  '  已停止'
+    # ⛔ 只停【自己启动的】进程 —— 早先版本无条件 Stop-Process，会误杀别人的后端
+    if ($startedFe) { Stop-Process -Id $startedFe.Id -Force -ErrorAction SilentlyContinue }
+    if ($startedBe) { Stop-Process -Id $startedBe.Id -Force -ErrorAction SilentlyContinue }
+    '  已停止本脚本启动的进程（复用的实例不动）'
 }
+
+#
+# ✅ 反向验证已完成（2026-10-15）：把 vite.config.ts 里的代理规则删掉后重跑本脚本，
+#    前端【确实起来了】，而四项断言【全部 FAIL】，退出码 1。关键证据是：
+#        三个接口的 HTTP 状态码【全是 200】—— 也就是说旧断言（只判 HTTP 200）
+#        在这种情形下会【全部 PASS】。新断言因为查了 Content-Type 与信封 code 才判得出来。
+#    ⇒ 「断言从无效变为有效」是被实测证明的，不是推断。
+#    ⚠️ 做这个反证时要注意：删除代理规则必须【精确到行】。
+#       我第一版用正则 `proxy: \{.*?\},` 去替换，结果留下一个多余的 `},`，
+#       配置语法非法 ⇒ vite 起不来 ⇒ 那次的 exit=1 与断言无关，反证无效。
+#       （教训：反证的失败必须能区分"因断言失败"与"因环境没起来"。）
