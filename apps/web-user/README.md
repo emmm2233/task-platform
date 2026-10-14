@@ -24,16 +24,23 @@ Vite + Vue 3 + TypeScript。首屏是**任务大厅**。
 `src/api/client.ts` 同时检查 HTTP 与信封里的 `success`，并把 `traceId` 透出到界面 ——
 用户报障时能直接给到日志，不用靠猜时间点。
 
-## ⚠️ 本机已知环境坑（已在 .npmrc 里处理，换机器时注意）
+## ⚠️ 本机已知环境坑（换机器必读；有一处【未解决】）
 
 1. **pnpm 11 默认拦截依赖的构建脚本**（供应链安全），且把"有脚本被忽略"
-   升级成 install 失败。esbuild 需要放平台二进制，所以 `.npmrc` 里设了
-   `strict-dep-builds=false`。
-   ⛔ 本机的 `package.json` 里那个 `pnpm.onlyBuiltDependencies` 字段 pnpm 11 【不读】——
-   实测加上无效。别以为写了就生效。
-2. 若仍报 `ERR_PNPM_IGNORED_BUILDS`，执行一次 `pnpm rebuild esbuild` 让它补上二进制。
-3. 卡在前置检查时可以直接调 vite 验证构建本身是否成立：
-   `node node_modules/vite/bin/vite.js build`
+   升级成 install 失败。esbuild 需要放平台二进制。
+
+   ⛔ **未解决**：`pnpm build` 目前仍 exit 1（卡在 pnpm 自己的依赖状态前置检查）。
+   试过但【无效】的做法，别重复踩：
+   - `package.json` 里的 `pnpm.onlyBuiltDependencies` —— **pnpm 11 不读这个字段**；
+   - `.npmrc` 里的 `strict-dep-builds=false` —— 实测仍失败。
+
+   ✅ **目前可用且已验证的构建方式**（两条命令都跑过，产物一致）：
+
+       pnpm rebuild esbuild                        # 放行 esbuild，放置平台二进制
+       node node_modules/vite/bin/vite.js build    # 直接调 vite，绕过 pnpm 前置检查
+
+   ⚠️ 换机器时若 `pnpm build` 报 `ERR_PNPM_IGNORED_BUILDS`，先跑一次 `pnpm rebuild esbuild`。
+   彻底解决要在根目录建 pnpm workspace 并正确声明放行清单，**尚未做**。
 
 ## 已核验
 
