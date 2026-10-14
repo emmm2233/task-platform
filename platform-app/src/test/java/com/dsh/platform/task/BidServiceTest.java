@@ -86,7 +86,7 @@ class BidServiceTest {
                 VALUES (?,?,?,'/','ONLINE','BID', ?,?, 'BID','SINGLE',1, 3000.00, 5000.00, ?, ?, 'BIDDING',
                         'PASSED','web-user',0)
                 """,
-                "B" + System.nanoTime() % 100000000L, publisherId, categoryId,
+                "B" + Long.toString(System.nanoTime(), 36), publisherId, categoryId,
                 "报价测试", "验证报价规则", LocalDateTime.now().plusDays(30), bidDeadline);
         return jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
     }

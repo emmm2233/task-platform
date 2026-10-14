@@ -112,7 +112,7 @@ class GrabConcurrencyTest {
                                   price, deadline, status, audit_status, source_client, version)
                 VALUES (?,?,?,'/','ONLINE','FIXED', ?,?,'GRAB','SINGLE',1, ?,?, 'RECRUITING','PASSED','web-user',0)
                 """,
-                "G" + System.nanoTime() % 100000000L, publisherId, categoryId,
+                "G" + Long.toString(System.nanoTime(), 36), publisherId, categoryId,
                 "并发抢单测试", "验证唯一性", new BigDecimal("1000.00"),
                 LocalDateTime.now().plusDays(7));
         return jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);

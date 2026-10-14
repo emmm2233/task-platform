@@ -214,9 +214,21 @@ public class TaskCommandService {
         }
     }
 
-    /** 任务号：T + yyyyMMdd + 5 位随机。唯一性由 uk 兜底（Phase 1 规模足够）。 */
+    /**
+     * 任务号：{@code T + yyyyMMdd + 8 位 base36}。
+     *
+     * <p>⚠️ 曾经是「5 位数字随机」（空间仅 10 万/天），实测在测试规模下就撞了
+     * {@code uk_task_no}。这与 {@code user_no} 是<b>同一个缺陷</b>（T10 修过 user_no）。
+     *
+     * <p>⭐ 为什么不是"加个重试"就完事：重试能兜住偶发碰撞，但 5 位空间下
+     * 碰撞是<b>必然</b>而非偶发——加长随机空间才是根治，唯一索引仍作最后兜底。
+     * base36 的 8 位空间约 2.8×10^12/天，碰撞概率可忽略。
+     * ⛔ 若将来要"连号"（对外可读），应换成号段服务，而不是缩回短随机。
+     */
     private String nextTaskNo() {
+        long n = ThreadLocalRandom.current().nextLong(36L * 36 * 36 * 36 * 36 * 36 * 36 * 36L);
+        String suffix = Long.toString(n, 36);
         return "T" + LocalDateTime.now(clock).atZone(ZoneOffset.ofHours(8)).format(DAY)
-                + String.format("%05d", ThreadLocalRandom.current().nextInt(100000));
+                + "0".repeat(8 - suffix.length()) + suffix;
     }
 }

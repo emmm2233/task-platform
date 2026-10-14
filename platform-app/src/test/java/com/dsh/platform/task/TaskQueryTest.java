@@ -75,7 +75,7 @@ class TaskQueryTest {
                                   price, deadline, status, audit_status, source_client, version)
                 VALUES (?,?,?,'/','ONLINE','FIXED', ?,?,'GRAB','SINGLE',1, ?,?,?,'PASSED','web-user',0)
                 """,
-                "T" + System.nanoTime() % 100000000L, publisherId, categoryId,
+                "T" + Long.toString(System.nanoTime(), 36), publisherId, categoryId,
                 title, "检索测试用", price, LocalDateTime.now().plusDays(10), status);
         return jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
     }
