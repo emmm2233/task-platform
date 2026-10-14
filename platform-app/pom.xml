@@ -35,6 +35,10 @@
         <test.db.password>123456</test.db.password>
         <!-- 测试用独立的 Redis 库号：避免清掉【运行中应用】的短信限流计数 -->
         <test.redis.database>15</test.redis.database>
+        <!-- ⛔ CI 里 Redis 是 service 别名（redis），必须能覆盖 host：
+             修复前 CI 定义了 TEST_REDIS_HOST 却没有【任何代码读取它】，
+             surefire 只覆盖了 database ⇒ CI 上测试连的是 127.0.0.1:6379（容器里的自己）。 -->
+        <test.redis.host>127.0.0.1</test.redis.host>
     </properties>
 
     <dependencies>
@@ -157,6 +161,10 @@
                         <spring.datasource.url>${test.db.url}</spring.datasource.url>
                         <spring.datasource.username>${test.db.username}</spring.datasource.username>
                         <spring.datasource.password>${test.db.password}</spring.datasource.password>
+                        <!-- ⭐ host 也要能覆盖：CI 里 Redis 是 service 别名 redis，不是 127.0.0.1。
+                             修复前只覆盖了 database，CI 传的 TEST_REDIS_HOST 没有任何代码读取
+                             ⇒ 测试连不上 Redis（本机绿、CI 红）。 -->
+                        <spring.data.redis.host>${test.redis.host}</spring.data.redis.host>
                         <spring.data.redis.database>${test.redis.database}</spring.data.redis.database>
                     </systemPropertyVariables>
                 </configuration>

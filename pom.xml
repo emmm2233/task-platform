@@ -181,6 +181,30 @@
         </pluginManagement>
 
         <plugins>
+            <!--
+              ⭐ Checkstyle：规则集在 config/checkstyle/checkstyle.xml。
+
+              为什么必须【显式声明 configLocation】：修复前仓库里没有任何规则集，
+              `mvn checkstyle:check` 会走默认的 sun_checks.xml（要求每个方法都有 Javadoc、
+              行宽 80……），对 100+ 个文件必然大面积违规 ——
+              而它是 lint 阶段唯一的 job 且 allow_failure: false
+              ⇒ 整条流水线在第一个 stage 就失败，后面的 consistency/test/build 从未执行过。
+              ⛔ 一次性套用 sun_checks 的结果只会是"再也没人看它"，
+                 所以规则集刻意只保留零误报、高信号的几条，要加严就一条一条加。
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-checkstyle-plugin</artifactId>
+                <version>3.3.1</version>
+                <configuration>
+                    <configLocation>${maven.multiModuleProjectDirectory}/config/checkstyle/checkstyle.xml</configLocation>
+                    <consoleOutput>true</consoleOutput>
+                    <failOnViolation>true</failOnViolation>
+                    <violationSeverity>error</violationSeverity>
+                    <includeTestSourceDirectory>true</includeTestSourceDirectory>
+                </configuration>
+            </plugin>
+
             <!-- ⛔ 禁止动态版本号（LATEST / RELEASE / 区间），保证构建可复现 -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

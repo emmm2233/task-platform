@@ -32,8 +32,32 @@ class MigrationSmokeTest {
                     + "?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai"
                     + "&useSSL=false&allowPublicKeyRetrieval=true";
 
-    private static final String USERNAME = System.getProperty("test.mysql.username", "root");
-    private static final String PASSWORD = System.getProperty("test.mysql.password", "123456");
+    /**
+     * ⭐ 连接参数的取值顺序（与 20 个 {@code @SpringBootTest} <b>同源</b>）。
+     *
+     * <p>⛔ 修复前只读 {@code test.mysql.url}，而 surefire 注入的是
+     * {@code spring.datasource.url}（来自 pom 的 {@code test.db.url} 属性）——
+     * 于是 CI 传 {@code -Dtest.db.url=jdbc:mysql://mysql:3306/...} 时，
+     * Spring 测试连得上、<b>本类却退回 127.0.0.1</b>（容器里的自己）⇒ 必红。
+     * 现在两者共用同一个来源，本机与 CI 都不会漂。
+     */
+    static String firstNonBlank(String... candidates) {
+        for (String c : candidates) {
+            if (c != null && !c.isBlank()) {
+                return c;
+            }
+        }
+        return null;
+    }
+
+    private static final String USERNAME = firstNonBlank(
+            System.getProperty("test.mysql.username"),
+            System.getProperty("spring.datasource.username"),
+            "root");
+    private static final String PASSWORD = firstNonBlank(
+            System.getProperty("test.mysql.password"),
+            System.getProperty("spring.datasource.password"),
+            "123456");
 
     /** 与 db/migration 实跑结果一致的期望值。 */
     private static final int EXPECTED_TABLES = 71;
@@ -50,7 +74,12 @@ class MigrationSmokeTest {
      */
     @BeforeAll
     static void migrateOnce() {
-        url = System.getProperty("test.mysql.url", DEFAULT_URL);
+        // ⭐ 与 @SpringBootTest 同源：surefire 注入的 spring.datasource.url 优先，
+        //    再退回 test.mysql.url（显式覆盖），最后才是本机默认值。
+        url = firstNonBlank(
+                System.getProperty("test.mysql.url"),
+                System.getProperty("spring.datasource.url"),
+                DEFAULT_URL);
         assertSafeDatabase();
 
         Flyway flyway = flyway();

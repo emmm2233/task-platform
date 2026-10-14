@@ -30,6 +30,14 @@ default:
 
 # ---------------------------------------------------------------------
 # lint：代码风格与提交规范
+#
+# ⚠️ 修复前这条 job 会让【整条流水线在第一个 stage 就死】：
+#    仓库里没有任何 checkstyle 规则集 ⇒ `checkstyle:check` 走默认 sun_checks.xml
+#    （要求每个方法写 Javadoc、行宽 80）⇒ 100+ 文件大面积违规，
+#    而它 allow_failure: false 且在 lint 阶段唯一
+#    ⇒ 后面的 consistency（本项目自称"核心价值"）/test/build **从未执行过**。
+#    ✅ 现在规则集在 config/checkstyle/checkstyle.xml（刻意只留零误报、高信号的几条），
+#       全仓实测 0 违规。要加严就一条一条加，⛔ 别一次性套用 sun_checks。
 # ---------------------------------------------------------------------
 checkstyle:
   stage: lint
@@ -68,24 +76,42 @@ consistency-gates:
   allow_failure: false
 
 # ---------------------------------------------------------------------
-# test：单元 + 集成（Testcontainers 起真实 MySQL）
+# test：单元 + 集成（真实 MySQL / Redis service）
+#
+# ⛔⛔ 修复前的属性名是错的，这个 job 【必然红】：
+#      CI 传 -Dtest.mysql.url / -Dtest.mysql.password，
+#      而 surefire 读的是 ${test.db.url} / ${test.db.password}（见 platform-app/pom.xml）
+#      ⇒ 20 个 @SpringBootTest 解析到默认的 127.0.0.1:3306 ——
+#        在 job 容器里 127.0.0.1 就是容器自己，MySQL 在别名 mysql 上。
+#      -Dtest.mysql.* 只对 MigrationSmokeTest 有效（它直接读 System.getProperty）。
+#      同理 TEST_REDIS_HOST 以前【没有任何代码读取】：surefire 只覆盖了 redis.database。
 # ---------------------------------------------------------------------
 unit-test:
   stage: test
   services:
     - name: mysql:8.0.36
       alias: mysql
+      command:
+        - --character-set-server=utf8mb4
+        - --collation-server=utf8mb4_0900_ai_ci
+        - --transaction-isolation=READ-COMMITTED
+        # ⭐ 必须与 deploy/docker-compose.dev.yml 和 ClockConfig（Asia/Shanghai）对齐：
+        #    全库是【无时区 DATETIME】，服务端 UTC + 应用写 +08:00 会让
+        #    DEFAULT CURRENT_TIMESTAMP 与 LocalDateTime.now(clock) 差 8 小时，
+        #    任何耗时/超时/SLA 断言在 CI 上都会漂。
+        - --default-time-zone=+08:00
     - name: redis:7.2-alpine
       alias: redis
   variables:
     MYSQL_ROOT_PASSWORD: root123456
     MYSQL_DATABASE: task_platform_test
-    TEST_MYSQL_URL: "jdbc:mysql://mysql:3306/task_platform_test?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true"
+    TEST_MYSQL_URL: "jdbc:mysql://mysql:3306/task_platform_test?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true"
     TEST_REDIS_HOST: redis
   script:
     - $MAVEN_CLI -pl platform-app -am test
-      -Dtest.mysql.url="$TEST_MYSQL_URL"
-      -Dtest.mysql.password="$MYSQL_ROOT_PASSWORD"
+      -Dtest.db.url="$TEST_MYSQL_URL"
+      -Dtest.db.password="$MYSQL_ROOT_PASSWORD"
+      -Dtest.redis.host="$TEST_REDIS_HOST"
   artifacts:
     when: always
     reports:
@@ -99,14 +125,30 @@ concurrency-test:
   services:
     - name: mysql:8.0.36
       alias: mysql
+      command:
+        - --character-set-server=utf8mb4
+        - --collation-server=utf8mb4_0900_ai_ci
+        - --transaction-isolation=READ-COMMITTED
+        - --default-time-zone=+08:00
     - name: redis:7.2-alpine
       alias: redis
   variables:
     MYSQL_ROOT_PASSWORD: root123456
     MYSQL_DATABASE: task_platform_test
+    TEST_MYSQL_URL: "jdbc:mysql://mysql:3306/task_platform_test?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true"
+    TEST_REDIS_HOST: redis
   script:
     # ⭐ 5000 并发抢同一单，成功数必须恒为 1（G14）
-    - $MAVEN_CLI -pl platform-app -am verify -Pconcurrency
+    #
+    # ⛔ 修复前这里写的是 `verify -Pconcurrency`，而【两个 pom 都没有 <profiles>】——
+    #    Maven 对不存在的 -P 只告警不报错 ⇒ profile 静默失效，
+    #    这个 job 只是把 unit-test 又跑了一遍（测试默认 500 并发），门禁名不副实。
+    #    正确的规模开关是 GrabConcurrencyTest 读的系统属性。
+    - $MAVEN_CLI -pl platform-app -am verify
+      -Dgrab.concurrency=5000
+      -Dtest.db.url="$TEST_MYSQL_URL"
+      -Dtest.db.password="$MYSQL_ROOT_PASSWORD"
+      -Dtest.redis.host="$TEST_REDIS_HOST"
   rules:
     - if: $CI_COMMIT_BRANCH == "main" || $CI_MERGE_REQUEST_ID
 
@@ -134,6 +176,8 @@ sast:
 dependency-check:
   stage: security
   script:
+    # ⚠️ .owasp-suppressions.xml 修复前【不存在】，而插件找不到抑制文件会直接抛异常
+    #    ⇒ 这个 job 每次必红（"SCA 已接入"是纸面的）。现已补上（空文件 + 登记格式说明）。
     - $MAVEN_CLI -q org.owasp:dependency-check-maven:check
       -DfailBuildOnCVSS=7
       -DsuppressionFile=.owasp-suppressions.xml
@@ -154,13 +198,14 @@ build-jar:
       - platform-app/target/*.jar
     expire_in: 1 week
 
-image-scan:
-  stage: build
-  needs: ["build-jar"]
-  image: aquasec/trivy:latest
-  script:
-    # ⛔ 高危漏洞即失败
-    - trivy image --exit-code 1 --severity HIGH,CRITICAL "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA"
+# ⛔ image-scan 已移除（原 job 是个假门禁）：
+#    它执行 `trivy image $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA`，
+#    但全仓【没有 Dockerfile】，也没有任何 docker build / push / kaniko 步骤，
+#    build-jar 只产出 platform-app/target/*.jar
+#    ⇒ 该 tag 永远不会存在，trivy 必然失败（或扫到 runner 上的残留旧镜像，
+#       给出与本次提交无关的结论）。
+#    要恢复它，先补：① Dockerfile ② build+push job ③ registry 登录，
+#    再让 image-scan `needs` 那个 push job。
 
 # ---------------------------------------------------------------------
 # deploy：人工卡点
@@ -172,7 +217,9 @@ deploy-staging:
   environment:
     name: staging
   rules:
-    - if: $CI_COMMIT_BRANCH == "main"
+    # ⚠️ 必须同时允许 release/*：deploy-production 的 needs 指向本 job，
+    #    若本 job 只在 main 存在，GitLab 会因"needs 的 job 不在流水线里"拒绝创建整条流水线。
+    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH =~ /^release\//
       when: manual
 
 deploy-production:
@@ -184,5 +231,8 @@ deploy-production:
   environment:
     name: production
   rules:
-    - if: $CI_COMMIT_BRANCH == "release/*"
+    # ⛔ 修复前写的是 `== "release/*"` —— GitLab 的 == 是【字面串比较】，
+    #    没有任何分支叫 "release/*" ⇒ 这个 job 永远不会进入流水线。
+    #    正则匹配必须用 =~。
+    - if: $CI_COMMIT_BRANCH =~ /^release\//
       when: manual
