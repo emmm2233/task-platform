@@ -61,7 +61,7 @@ class MigrationSmokeTest {
 
     /** 与 db/migration 实跑结果一致的期望值。 */
     private static final int EXPECTED_TABLES = 71;
-    private static final int EXPECTED_MIGRATIONS = 7;
+    private static final int EXPECTED_MIGRATIONS = 8;
 
     private static String url;
     private static MigrateResult migrateResult;
@@ -139,6 +139,21 @@ class MigrationSmokeTest {
                     .as("%s 必须有 uk_chain（段内序号唯一，并发不写坏链）", table)
                     .contains("uk_chain");
         }
+    }
+
+    @Test
+    @DisplayName("⭐ 短信防轰炸的两个闸门参数已种子化（V8）")
+    void sms_guardrail_configs_are_seeded() throws Exception {
+        // ⛔ 这是硬断言，V8 末尾的 SELECT 只打印、不会让迁移失败
+        //    （Flyway 只按 SQL 错误判定成败）——真正的门禁必须在测试里。
+        assertThat(queryInt("SELECT COUNT(*) FROM sys_config WHERE config_key IN "
+                + "('security.sms_global_hour_limit','security.sms_verify_max_attempts')"))
+                .as("全局短信上限 + 校验尝试上限，缺任何一个都会让对应防护静默失效")
+                .isEqualTo(2);
+        assertThat(queryInt("SELECT CAST(config_value AS UNSIGNED) FROM sys_config "
+                + "WHERE config_key = 'security.sms_verify_max_attempts'"))
+                .as("校验尝试上限必须是正整数（0 会让所有验证码都无法通过）")
+                .isGreaterThan(0);
     }
 
     @Test

@@ -5,6 +5,7 @@ import com.dsh.platform.identity.dto.LoginResult;
 import com.dsh.platform.identity.dto.SmsScene;
 import com.dsh.platform.identity.service.AuthService;
 import com.dsh.platform.identity.service.SmsCodeService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
@@ -31,10 +32,17 @@ public class AuthController {
     private final SmsCodeService smsCodeService;
 
     @PostMapping("/sms-code")
-    public ApiResponse<Void> sendSmsCode(@Valid @RequestBody SmsCodeRequest req) {
+    public ApiResponse<Void> sendSmsCode(@Valid @RequestBody SmsCodeRequest req,
+                                         HttpServletRequest request) {
         // ⚠️ 生产环境这里只发短信、不返回验证码；返回值在 controller 层被丢弃
+        //     （⛔ 绝不能把验证码放进响应 —— 那等于把任意手机号的登录权交给调用方）
+        //
+        // ⛔⛔ IP 必须取【服务端看到的对端地址】，不能取请求体里的 req.ip：
+        //    客户端每次随机填一个值就能把"IP 维度"整个绕开（独立审查实测的缺口）。
+        //    这里刻意【不读 X-Forwarded-For】：那是客户端可伪造的头，
+        //    要支持反向代理必须显式配置可信代理链，而不是无脑直采。
         smsCodeService.send(req.getPhone(), SmsScene.valueOf(req.getScene()),
-                req.getIp(), req.getDeviceId());
+                request.getRemoteAddr(), req.getDeviceId());
         return ApiResponse.ok();
     }
 
@@ -65,8 +73,12 @@ public class AuthController {
         @NotBlank
         private String scene;
 
-        private String ip;
+        /**
+         * ⛔ 没有 ip 字段（曾有过）：来源 IP 必须由服务端取
+         * （{@code request.getRemoteAddr()}），否则限流维度形同虚设。
+         */
 
+        /** 设备指纹：客户端提供、天生可伪造 ⇒ 只算"软"维度，兜底靠全局闸门。 */
         private String deviceId;
     }
 
