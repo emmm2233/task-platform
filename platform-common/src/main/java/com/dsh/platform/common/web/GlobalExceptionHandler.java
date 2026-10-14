@@ -111,6 +111,33 @@ public class GlobalExceptionHandler {
     }
 
     /** 兜底：真正的系统故障，记完整堆栈但⛔ 不把细节返回给客户端。 */
+    /**
+     * 未映射的路径 → 404。
+     *
+     * <p>⭐ 这是 T6 那个 AccessDeniedException → 200 缺陷的同一类，且危害更大：
+     * 兜底的 @ExceptionHandler(Exception.class) 会把 NoResourceFoundException
+     * 也变成 200 + "系统繁忙"。
+     *
+     * <p>实测（真实启动 + 打接口）：GET /api/v1/tasks 返回 HTTP 200 与
+     * {"code":10999,"message":"系统繁忙，请稍后再试"}，而当时根本没有这个接口。
+     *
+     * <p>为什么必须显式处理：
+     * - 排查方向被带偏：controller 注册失败会表现为"系统繁忙"而非"路由不存在"；
+     * - 前端无法区分"接口不存在（发版不一致）"与"服务端故障"；
+     * - 监控无法按 404 率发现前后端路由不一致。
+     *
+     * <p>⚠️ 只对【真正未映射】的路径生效；已映射但被安全规则拦下的走 401/403。
+     */
+    @ExceptionHandler({
+            org.springframework.web.servlet.resource.NoResourceFoundException.class,
+            org.springframework.web.servlet.NoHandlerFoundException.class
+    })
+    public org.springframework.http.ResponseEntity<ApiResponse<Void>> handleNotFound(Exception e) {
+        log.warn("未映射的请求路径：{}", e.getMessage());
+        return org.springframework.http.ResponseEntity.status(org.springframework.http.HttpStatus.NOT_FOUND)
+                .body(ApiResponse.fail(ErrorCode.NOT_FOUND));
+    }
+
     @ExceptionHandler(Exception.class)
     public ApiResponse<Void> handleUnexpected(Exception e) {
         log.error("系统异常", e);

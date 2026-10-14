@@ -85,5 +85,16 @@
             <artifactId>logback-classic</artifactId>
             <scope>test</scope>
         </dependency>
-    </dependencies>
+    
+        <!--
+          provided：只为编译 GlobalExceptionHandler 里用到的 NoResourceFoundException /
+          NoHandlerFoundException（它们在 spring-webmvc 里）。运行时由 platform-app 提供。
+          与已有的 spring-security-core / jakarta.servlet-api 同一做法。
+        -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-webmvc</artifactId>
+            <scope>provided</scope>
+        </dependency>
+</dependencies>
 </project>

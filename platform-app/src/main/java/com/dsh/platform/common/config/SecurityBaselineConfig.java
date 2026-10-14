@@ -4,6 +4,7 @@ import com.dsh.platform.common.ApiResponse;
 import com.dsh.platform.identity.security.JwtAuthenticationFilter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpMethod;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
@@ -80,6 +81,13 @@ public class SecurityBaselineConfig {
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(PUBLIC_ENDPOINTS).permitAll()
+                        // ⭐ 大厅匿名浏览（用户 2026-10-15 拍板）：未登录可看分类与任务列表。
+                        //    ⛔ 必须【按方法限定为 GET】—— PUBLIC_ENDPOINTS 是不分方法的 permitAll，
+                        //       把 /api/v1/tasks 直接加进去会连带放行 POST，
+                        //       等于未登录就能发单。这是本规则存在的唯一理由。
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/v1/categories", "/api/v1/categories/**",
+                                "/api/v1/tasks", "/api/v1/tasks/**").permitAll()
                         // ⭐ 第 1 层：路径域。身份用合成权限 IDENTITY_* 表达，
                         //    这样"能不能进这个区"与"进去后能做什么"两件事分开。
                         .requestMatchers("/api/v1/admin/**").hasAuthority("IDENTITY_ADMIN")
