@@ -41,9 +41,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  *       竞拍进 BIDDING。这正是状态机把「→ RECRUITING / BIDDING」拆成两个事件的原因。</li>
  * </ol>
  *
- * <p>⚠️ 库里<b>没有</b> {@code wallet} / {@code wallet_transaction} 表 ——
- * 资金不过平台账户，托管在渠道侧。这是刻意的：
- * ⛔ 平台自有账户归集客户资金会构成「二清」，是合规红线。
+ * <p>⚠️ 账本：库里<b>有</b> {@code wallet_account}（含 ESCROW_HOLD 托管池科目）
+ * 与 {@code wallet_txn}（复式记账）。渠道是资金变动的权威来源，账本是平台侧镜像。
+ * 本类只验 {@code biz_order} + {@code escrow}；<b>写账本尚未实现</b>（T17 前置）。
  */
 @SpringBootTest
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)

@@ -25,9 +25,24 @@ import java.util.Map;
  * （干完不给钱）、发单方不敢先付钱（给了不干活）。托管把"谁先谁后"这个死结
  * 交给一个双方都信任的中间态：钱先冻结，验收通过才放。
  *
- * <p>⛔ <b>资金不过平台账户</b>：库里刻意<b>没有</b> {@code wallet} /
- * {@code wallet_transaction} 表，托管在渠道侧（{@code channel_order_no}）。
- * 平台用自己的账户归集客户资金会构成「二清」，是合规红线。
+ * <h2>⚠️ 与账本的关系（曾在这里写错过，如实记录）</h2>
+ * 本类最初在此断言"库里刻意没有钱包表、资金不过平台账户"——<b>那是错的</b>。
+ * 错因：探查时用了 {@code wallet} / {@code wallet_transaction} 两个<b>不存在的表名</b>，
+ * 然后把"查不到"当成了"不存在"。
+ *
+ * <p>实际上账本是完整的：{@code wallet_account}（双余额 available + frozen，
+ * account_type 含 USER / PLATFORM_COMMISSION / PLATFORM_DEPOSIT / <b>ESCROW_HOLD 托管池</b>）
+ * 与 {@code wallet_txn}（复式记账 from_account_id → to_account_id + idempotent_key + channel_txn_no）。
+ *
+ * <p>⭐ 因此正确的表述是：<b>渠道是资金变动的权威来源</b>（{@code channel_order_no} 幂等），
+ * 而 {@code wallet_account} / {@code wallet_txn} 是平台侧的账本镜像。
+ * 本类只写 {@code biz_order} + {@code escrow}，<b>尚未写账本</b> ——
+ * 托管冻结应记一笔 USER.available → ESCROW_HOLD 的复式分录，
+ * 这是 T17 分账的前置（列在这里以免被当成"已经做完了"）。
+ *
+ * <p>⛔ 合规问题（资金是否实际停留在平台账户、是否需要支付牌照/分账资质）
+ * <b>不由表结构回答，需要业务与法务拍板</b>。本次只订正事实性错误，
+ * 不替它下结论。
  *
  * <p>三条硬约束：
  * <ol>
