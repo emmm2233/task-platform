@@ -82,16 +82,30 @@ public class LedgerService {
             return holdId;
         }
 
-        BigDecimal before = jdbc.queryForObject(
-                "SELECT frozen FROM wallet_account WHERE id = ?", BigDecimal.class, holdId);
-        BigDecimal after = RowValues.nzDecimal(before).add(amount);
-
-        // ⭐ 冻结：加 frozen 而不是 available
-        jdbc.update("""
+        // ⭐ 冻结：加 frozen 而不是 available。
+        //
+        // ⛔⛔ 必须是【原子自增 + 影响行数判定】，不能写成"先 SELECT 出来、在 Java 里加好、
+        //     再 SET frozen = <绝对值>"——那个写法在并发下必然丢更新：
+        //       T1 读 frozen=1000，T2 也读 frozen=1000（T1 还没提交），
+        //       两笔各 500 ⇒ T1 写 1100、T2 阻塞后也写 1100，真实应记 2000，账本只记 1100。
+        //     而 wallet_account.version 虽然自增，却【从不参与 WHERE】，等于没有乐观锁；
+        //     ck_wallet_non_negative 也抓不到（余额仍然 ≥0），
+        //     最终对账项「Σ wallet_account.frozen == Σ escrow 未释放金额」必然不平。
+        //     ⭐ 这与 application-dev.yml 写明的口径一致：
+        //        "先检查后更新"的竞态由【条件 UPDATE】解决（TaskGrabMapper.grabAtomic 就是这么做的）。
+        int updated = jdbc.update("""
                 UPDATE wallet_account
-                   SET frozen = ?, total_in = total_in + ?, version = version + 1, updated_at = NOW(3)
+                   SET frozen = frozen + ?, total_in = total_in + ?, version = version + 1, updated_at = NOW(3)
                  WHERE id = ?
-                """, after, amount, holdId);
+                """, amount, amount, holdId);
+        if (updated != 1) {
+            throw new BizException(ErrorCode.SYSTEM_BUSY, "托管池入账失败：账户不存在 id=" + holdId);
+        }
+
+        // 回读作为 balance_after：同一事务内看得到自己刚写的值，
+        // 且该行的写锁持有到提交，不会被并发插队改掉。
+        BigDecimal after = RowValues.nzDecimal(jdbc.queryForObject(
+                "SELECT frozen FROM wallet_account WHERE id = ?", BigDecimal.class, holdId));
 
         LocalDateTime now = LocalDateTime.now(clock);
         Map<String, Object> cols = RowValues.of(
@@ -151,34 +165,43 @@ public class LedgerService {
             return;
         }
 
-        // ⭐ 预检：释放不得超过冻结额
-        BigDecimal holdFrozen = RowValues.nzDecimal(jdbc.queryForObject(
-                "SELECT frozen FROM wallet_account WHERE id = ?", BigDecimal.class, holdId));
-        if (amount.compareTo(holdFrozen) > 0) {
+        Long takerAccountId = userAccountId(takerId);
+
+        // ⭐ 把"释放不得超过冻结额"从【预检】改成【条件更新的 WHERE 谓词】+ 影响行数判定。
+        //    ⛔ 原写法先 SELECT frozen 预检、再 SET frozen = <算好的绝对值>：
+        //       ① 两个并发释放读到同一个旧值 ⇒ 后写覆盖前写（丢更新，账本少记）；
+        //       ② 反向交错（入账与释放并发）会让余额虚高，预检被这虚高值放行
+        //          ⇒ 平台替托管池垫付。
+        //    两处都只有把判据下沉到 UPDATE 的 WHERE 里才真正成立。
+        int released = jdbc.update("""
+                UPDATE wallet_account
+                   SET frozen = frozen - ?, total_out = total_out + ?, version = version + 1, updated_at = NOW(3)
+                 WHERE id = ? AND frozen >= ?
+                """, amount, amount, holdId, amount);
+        if (released != 1) {
+            // 区分"余额不足"与"账户不存在"没有意义 —— 后者不该发生；给出当前余额便于定位。
+            BigDecimal current = RowValues.nzDecimal(jdbc.queryForObject(
+                    "SELECT frozen FROM wallet_account WHERE id = ?", BigDecimal.class, holdId));
             throw new BizException(ErrorCode.AMOUNT_MISMATCH,
                     "释放金额（" + amount.toPlainString() + "）超过托管池冻结余额（"
-                            + holdFrozen.toPlainString() + "）");
+                            + current.toPlainString() + "）");
         }
 
-        Long takerAccountId = userAccountId(takerId);
-        BigDecimal holdAfter = holdFrozen.subtract(amount);
-        BigDecimal takerAfter = RowValues.nzDecimal(jdbc.queryForObject(
-                "SELECT available FROM wallet_account WHERE id = ?", BigDecimal.class, takerAccountId))
-                .add(amount);
-
-        // 托管池：减 frozen（不是 available），并记累计支出
-        jdbc.update("""
-                UPDATE wallet_account
-                   SET frozen = ?, total_out = total_out + ?, version = version + 1, updated_at = NOW(3)
-                 WHERE id = ?
-                """, holdAfter, amount, holdId);
-
         // 接单方：加 available（不是 frozen），并记累计收入
-        jdbc.update("""
+        int credited = jdbc.update("""
                 UPDATE wallet_account
-                   SET available = ?, total_in = total_in + ?, version = version + 1, updated_at = NOW(3)
+                   SET available = available + ?, total_in = total_in + ?, version = version + 1, updated_at = NOW(3)
                  WHERE id = ?
-                """, takerAfter, amount, takerAccountId);
+                """, amount, amount, takerAccountId);
+        if (credited != 1) {
+            throw new BizException(ErrorCode.SYSTEM_BUSY, "接单方钱包账户不存在 id=" + takerAccountId);
+        }
+
+        BigDecimal takerAfter = RowValues.nzDecimal(jdbc.queryForObject(
+                "SELECT available FROM wallet_account WHERE id = ?", BigDecimal.class, takerAccountId));
+        // 托管池剩余冻结：同样回读（用于日志与排查；不是判据 —— 判据在 UPDATE 的 WHERE 里）
+        BigDecimal holdAfter = RowValues.nzDecimal(jdbc.queryForObject(
+                "SELECT frozen FROM wallet_account WHERE id = ?", BigDecimal.class, holdId));
 
         LocalDateTime now = LocalDateTime.now(clock);
         Map<String, Object> cols = RowValues.of(

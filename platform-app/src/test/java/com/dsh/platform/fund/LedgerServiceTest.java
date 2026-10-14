@@ -15,8 +15,14 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -173,5 +179,53 @@ class LedgerServiceTest {
                 "SELECT txn_no FROM wallet_txn WHERE idempotent_key IN (?, ?)", String.class, k1, k2);
         assertThat(nos).hasSize(2).doesNotContainNull();
         assertThat(nos.get(0)).isNotEqualTo(nos.get(1));
+    }
+
+    @Test
+    @DisplayName("⭐⭐ 并发入账不丢更新：N 笔并发冻结后，托管池 frozen 必须恰好等于 N × 金额")
+    void concurrent_freezes_do_not_lose_updates() throws Exception {
+        // ⭐ 本用例补的是 fund 模块【唯一缺失的一类覆盖】：并发。
+        //    修复前 freezeEscrow 是"先 SELECT frozen → 在 Java 里加 → SET frozen = <绝对值>"，
+        //    version 虽然自增却从不参与 WHERE ⇒ 两个事务读到同一个旧值就后写覆盖前写。
+        //    触发场景很常见：两个发单方同时付款，或同一人同时付两单。
+        //    ⛔ 它不会报错、不会让余额变负（ck_wallet_non_negative 抓不到），
+        //       只会让账本少记 —— 直到对账项「Σ frozen == Σ escrow 未释放」不平才暴露。
+        //
+        // ⚠️ 这是"概率型"探测：线程够多、且有起跑线（latch）让窗口重叠，
+        //    旧写法几乎必然至少丢一次；但它不是形式化证明（那种要靠条件更新的写法本身保证）。
+        final int threads = 12;
+        final int perThread = 5;
+        final BigDecimal amount = new BigDecimal("7.77");
+        final BigDecimal base = frozenOfHold();
+        final long runId = RANDOM.nextInt(1_000_000);
+
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        CountDownLatch start = new CountDownLatch(1);
+        List<Future<?>> futures = new ArrayList<>();
+        try {
+            for (int t = 0; t < threads; t++) {
+                final int tid = t;
+                futures.add(pool.submit(() -> {
+                    start.await();
+                    for (int i = 0; i < perThread; i++) {
+                        ledgerService.freezeEscrow(
+                                10_000L + runId, 10_000L + runId, amount,
+                                "K-conc-" + runId + "-" + tid + "-" + i);
+                    }
+                    return null;
+                }));
+            }
+            start.countDown();
+            for (Future<?> f : futures) {
+                f.get(60, TimeUnit.SECONDS);
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+
+        BigDecimal expected = base.add(amount.multiply(BigDecimal.valueOf((long) threads * perThread)));
+        assertThat(frozenOfHold())
+                .as("并发入账丢更新：%d 线程 × %d 笔 × %s 必须全部记上", threads, perThread, amount)
+                .isEqualByComparingTo(expected);
     }
 }
