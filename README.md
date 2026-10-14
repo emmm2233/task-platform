@@ -13,10 +13,11 @@
 | `docs/` | [总体设计文档](docs/2026-10-15-任务撮合平台-总体设计.md) | **v1.6** · 4688 行 · 30 张 Mermaid 图 | ✅ |
 | `docs/plans/` | [三端交付路线图](docs/plans/2026-10-15-三端交付路线图.md) | Web → 小程序 → App 串行 20 周 | ✅ |
 | `docs/plans/` | [P1 后端与 Web 端实施计划](docs/plans/2026-10-15-P1-后端与Web端实施计划.md) | **41 任务 · 117 个 TDD 步骤** | ✅ |
-| `db/migration/` | `V1`–`V6` Flyway 迁移 | **71 表 · 898 列 · 256 索引 · 41 个 CHECK** | ✅ MySQL 8.4 实跑通过 |
-| `tools/` | [check-consistency](tools/check-consistency/) | **五道跨产物一致性门禁** | ✅ 自测 10/10 · 真实产物 0 违规 · 反向验证 4/4 |
-| `platform-*/` | [M0 工程骨架](deploy/README.md) | Spring Boot 3.2 + JDK 21 | ✅ 20 个测试全绿 · 可启动 |
-| `api/` | [openapi.yaml](api/openapi.yaml) | **110 路径 · 138 操作 · 63 schema** | ✅ 机器校验通过 |
+| `docs/` | [第二轮代码审查与修复](docs/2026-10-15-第二轮代码审查与修复.md) | 9 项 Critical 的处置与遗留 | ✅ |
+| `db/migration/` | `V1`–`V8` Flyway 迁移 | **71 表 · 898 列 · 256 索引 · 41 个 CHECK** | ✅ MySQL 8.4 实跑通过（`MigrationSmokeTest`） |
+| `tools/` | [check-consistency](tools/check-consistency/) | **五道跨产物一致性门禁** | ✅ 自测 **14/14**（含 4 条 `must-fail` 反向验证）· 真实产物 0 违规 |
+| `platform-*/` | [M0 工程骨架](deploy/README.md) | Spring Boot 3.2 + JDK 21 | ✅ **211 个测试全绿** · 可启动 |
+| `api/` | [openapi.yaml](api/openapi.yaml) | **110 路径 · 138 操作 · 63 schema** | ⚠️ 机器校验**仅覆盖 DDL↔文档↔权限点↔事件**，⛔ 不含 spec↔实现（见审查报告） |
 | `api/` | [websocket-protocol.md](api/websocket-protocol.md) | IM 长连接协议（16 种消息 + 离线补偿） | ✅ |
 | `prototype/mp-weixin/` | [index.html](prototype/mp-weixin/index.html) | 小程序 **14 屏**，单文件零外部依赖 | ✅ |
 | `prototype/web-admin/` | [index.html](prototype/web-admin/index.html) | 管理端 **12 屏**（9 岗位裁剪菜单） | ✅ |
@@ -37,7 +38,7 @@
 
 ```bash
 cd tools/check-consistency && pnpm install
-pnpm test          # 门禁自测：good 必须 0 违规、bad 必须抓到
+pnpm test          # 门禁自测：good* 必须 0 违规、bad* 必须抓到、must-fail* 必须响亮失败
 pnpm check         # 对真实产物执行五道门禁
 ```
 
@@ -53,7 +54,9 @@ pnpm check         # 对真实产物执行五道门禁
 
 - **宁可精确，不要贪全**。第一版对全部 63 个 schema 一视同仁，结果几十个计算字段被误报 —— 白名单会变成垃圾桶，而**误报多的门禁一定会被关掉**。改成「只校验能明确映射到真实表的 18 个 schema」，反而更严（要求字段属于**正确的那张表**）。
 - **「bad 夹具必须报错」比「good 夹具通过」重要**。我们真正要防的是**门禁悄悄失效**。
-- **验收标准不是"门禁通过"，而是"故意注入缺陷它必须报错"**。实测 4/4 命中。
+- **验收标准不是"门禁通过"，而是"故意注入缺陷它必须报错"**。
+- ⛔ **解析失败必须是硬错误**（`must-fail-*` 夹具就是为它立的）：实测过「括号不配平 ⇒ 整张表从五道门禁里消失 ⇒ 同一个字段注入从『报错』变成『0 违规』」。第二轮的独立审查复现了这条，已修（`lib/ddl.mjs` 现在直接 throw）。
+- ⚠️ **覆盖度要如实看**：门禁③ 的 71 张表里，只有 12 张靠 schema 名精确命中，**39 张是靠通用词（task/order/log/detail…）通过**的；门禁④ 目前只覆盖 **1 处** `@PreAuthorize`（全仓就这一处）。"0 违规"要连覆盖面一起读。
 
 ## 二、快速验证
 
@@ -66,7 +69,8 @@ mysql -uroot -p --default-character-set=utf8mb4 -e \
 cd db/migration
 for f in V1__schema_identity_task.sql V2__schema_award_order_credit.sql \
          V3__schema_wallet_dispute_infra.sql V4__seed_data.sql \
-         V5__seed_category.sql V6__seed_ops_security.sql; do
+         V5__seed_category.sql V6__seed_ops_security.sql \
+         V7__fix_audit_table_comments.sql V8__seed_sms_guardrails.sql; do
   mysql -uroot -p --default-character-set=utf8mb4 task_platform -e "source $f"
 done
 ```
@@ -74,6 +78,10 @@ done
 > ⚠️ **两个必踩的坑**：
 > 1. MySQL 客户端的 `source` **打不开中文路径**的文件 —— 先 `cd` 到 ASCII 路径或复制到临时目录。
 > 2. **必须带 `--default-character-set=utf8mb4`**，否则中文 COMMENT 与字符串被按 latin1 解析，报出**位置完全对不上**的语法错误。
+>
+> ⚠️ **改了已应用过的迁移文件后必须重建库**：Flyway 会校验 checksum，
+> 否则所有 `@SpringBootTest` 会因上下文加载失败集体报错（踩过：改 V8 的取值后 51 个测试同时红）。
+> 测试库重建：`DROP DATABASE task_platform_test; CREATE DATABASE task_platform_test ...;`
 
 `V4` / `V5` / `V6` 末尾内置**自检查询**，有输出即代表数据不自洽：
 信誉等级区间连续性 · 费率 BASE 兜底 · 分类子节点完整性 · 互斥岗位引用 · **平台科目账户齐三类** · **应急开关 ≥5 个** · **核心链路限流规则存在** · **im_message 已登记归档**。
