@@ -44,7 +44,11 @@ class HallPublicAccessTest {
         // 而 /api/v1/tasks 根本没有对应接口。controller 注册失败会被误判成"服务端故障"。
         // ① 在放行名单内、但没有对应接口 → 应该 404
         //    （实测过：曾经返回 200 + {"code":10999,"message":"系统繁忙"}）
-        mvc.perform(get("/api/v1/tasks")).andExpect(status().isNotFound());
+        // ⚠️ 注意不要拿 /api/v1/tasks 当例子 —— 它【现在真的有接口了】
+        //    （本用例最初就是这么写的，加了 TaskQueryController 之后立刻变红，
+        //     这恰好说明断言是有效的：路由一变它就报）。
+        //    这里用一个匹配 /api/v1/tasks/** 放行规则、但确实没有映射的子路径。
+        mvc.perform(get("/api/v1/tasks/definitely-not-a-route")).andExpect(status().isNotFound());
 
         // ② 不在放行名单内、也没有对应接口 → 应该 401 而不是 404。
         //    ⭐ 这是对的行为：deny-by-default 先于路由判定，
