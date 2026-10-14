@@ -51,6 +51,9 @@ public class LedgerService {
     /** 业务类型：托管冻结。 */
     public static final String BIZ_ESCROW_FREEZE = "ESCROW_FREEZE";
 
+    /** 业务类型：份额释放（托管池 → 接单方）。 */
+    public static final String BIZ_SHARE_RELEASE = "SHARE_RELEASE";
+
     private final JdbcTemplate jdbc;
     private final Clock clock;
 
@@ -113,6 +116,133 @@ public class LedgerService {
 
         log.info("托管冻结入账 托管池={} 金额={} 冻结后={}", holdId, amount.toPlainString(), after.toPlainString());
         return holdId;
+    }
+
+    /**
+     * 份额释放：托管池 → 接单方。
+     *
+     * <p>⭐ T17 会按 {@code escrow_share} 逐份额调用本方法，所以三件事由本方法自己保证：
+     * <ol>
+     *   <li>⭐ <b>释放不得超过冻结额</b> —— 托管池里是<b>别人的钱</b>，
+     *       多放一分就是平台垫付，账上会凭空多出钱。这里做<b>显式预检</b>并给业务错误码；
+     *       {@code ck_wallet_non_negative} 是最后一道兜底，但让它抛 SQL 异常
+     *       对调用方毫无指导意义；</li>
+     *   <li>⭐ <b>幂等</b> —— 分账超时重试是常态，重复释放等于重复付钱；</li>
+     *   <li><b>双余额语义</b> —— 托管池减 {@code frozen}（这笔钱本就是冻结的），
+     *       接单方加 {@code available}（钱已可提现，不该再冻着）。</li>
+     * </ol>
+     *
+     * <p>{@code direction} 以 {@code to_account_id} 为视角：{@code CREDIT} = 使收款账户增加。
+     * 冻结与释放都是 CREDIT（收款方分别是托管池与接单方），区别在 {@code biz_type}。
+     */
+    @Transactional
+    public void releaseShare(Long orderId, Long escrowId, Long subOrderId, Long takerId,
+                             BigDecimal amount, String idempotentKey) {
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "释放金额必须大于 0");
+        }
+        if (idempotentKey == null || idempotentKey.isBlank()) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "幂等键不能为空");
+        }
+
+        Long holdId = escrowHoldAccountId();
+        if (isDuplicated(idempotentKey)) {
+            log.info("释放幂等命中 idempotentKey={}", idempotentKey);
+            return;
+        }
+
+        // ⭐ 预检：释放不得超过冻结额
+        BigDecimal holdFrozen = RowValues.nzDecimal(jdbc.queryForObject(
+                "SELECT frozen FROM wallet_account WHERE id = ?", BigDecimal.class, holdId));
+        if (amount.compareTo(holdFrozen) > 0) {
+            throw new BizException(ErrorCode.AMOUNT_MISMATCH,
+                    "释放金额（" + amount.toPlainString() + "）超过托管池冻结余额（"
+                            + holdFrozen.toPlainString() + "）");
+        }
+
+        Long takerAccountId = userAccountId(takerId);
+        BigDecimal holdAfter = holdFrozen.subtract(amount);
+        BigDecimal takerAfter = RowValues.nzDecimal(jdbc.queryForObject(
+                "SELECT available FROM wallet_account WHERE id = ?", BigDecimal.class, takerAccountId))
+                .add(amount);
+
+        // 托管池：减 frozen（不是 available），并记累计支出
+        jdbc.update("""
+                UPDATE wallet_account
+                   SET frozen = ?, total_out = total_out + ?, version = version + 1, updated_at = NOW(3)
+                 WHERE id = ?
+                """, holdAfter, amount, holdId);
+
+        // 接单方：加 available（不是 frozen），并记累计收入
+        jdbc.update("""
+                UPDATE wallet_account
+                   SET available = ?, total_in = total_in + ?, version = version + 1, updated_at = NOW(3)
+                 WHERE id = ?
+                """, takerAfter, amount, takerAccountId);
+
+        LocalDateTime now = LocalDateTime.now(clock);
+        Map<String, Object> cols = RowValues.of(
+                "txn_no", "T" + Long.toString(System.nanoTime(), 36),
+                "biz_type", BIZ_SHARE_RELEASE,
+                "direction", "CREDIT",
+                "from_account_id", holdId,
+                "to_account_id", takerAccountId,
+                "amount", amount,
+                "order_id", orderId,
+                "sub_order_id", subOrderId,
+                "escrow_id", escrowId,
+                "balance_after", takerAfter,
+                "idempotent_key", idempotentKey,
+                "status", "SUCCESS",
+                "remark", "份额释放",
+                "created_at", now);
+        String[] p = RowValues.insertParts(cols);
+        jdbc.update("INSERT INTO wallet_txn (" + p[0] + ") VALUES (" + p[1] + ")",
+                cols.values().toArray());
+
+        log.info("份额释放 托管池={} → 接单方账户={} 金额={} 托管池剩余冻结={}",
+                holdId, takerAccountId, amount.toPlainString(), holdAfter.toPlainString());
+    }
+
+    /** 幂等键是否已入账。 */
+    private boolean isDuplicated(String idempotentKey) {
+        Integer n = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM wallet_txn WHERE idempotent_key = ?", Integer.class, idempotentKey);
+        return n != null && n > 0;
+    }
+
+    /**
+     * 取（必要时创建）用户的 {@code USER} 账户。
+     *
+     * <p>⚠️ 不能假设"用户一定有账户"：接单方可能从未充值或提现过，
+     * 他的账户是在<b>第一次收到钱</b>时才建的。⛔ 若这里直接取不到就报错，
+     * 表现会是"分账失败"，而根因只是"他还没建过账户"——排查成本很高。
+     */
+    private Long userAccountId(Long userId) {
+        List<Long> ids = jdbc.queryForList(
+                "SELECT id FROM wallet_account WHERE user_id = ? AND account_type = 'USER' LIMIT 1",
+                Long.class, userId);
+        if (!ids.isEmpty()) {
+            return ids.get(0);
+        }
+        LocalDateTime now = LocalDateTime.now(clock);
+        Map<String, Object> cols = RowValues.of(
+                "user_id", userId,
+                "account_type", "USER",
+                "account_no", "U" + Long.toString(System.nanoTime(), 36),
+                "available", BigDecimal.ZERO,
+                "frozen", BigDecimal.ZERO,
+                "total_in", BigDecimal.ZERO,
+                "total_out", BigDecimal.ZERO,
+                "version", 0,
+                "created_at", now,
+                "updated_at", now);
+        String[] p = RowValues.insertParts(cols);
+        jdbc.update("INSERT INTO wallet_account (" + p[0] + ") VALUES (" + p[1] + ")",
+                cols.values().toArray());
+        Long id = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        log.info("创建用户钱包账户 userId={} accountId={}", userId, id);
+        return id;
     }
 
     /**
