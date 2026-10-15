@@ -121,6 +121,12 @@ jobs:
     name: 单元 + 集成测试
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    # ⭐ JVM 默认时区：GitHub runner 是 UTC，而 HealthAndSecurityBaselineTest
+    #    期望带 +08:00 偏移的 ISO8601 —— UTC 下拿到 "…Z" 会直接失败（实测）。
+    #    本地 Windows 是 Asia/Shanghai 所以看不出来。
+    #    Linux 上 JVM 读 TZ 环境变量，surefire fork 出的子进程会继承。
+    env:
+      TZ: Asia/Shanghai
     services:
       mysql:
         image: mysql:8.0.36
@@ -198,6 +204,8 @@ jobs:
     if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    env:
+      TZ: Asia/Shanghai
     services:
       mysql:
         image: mysql:8.0.36
