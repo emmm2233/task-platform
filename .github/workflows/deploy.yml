@@ -1,0 +1,47 @@
+# =====================================================================
+#  部署（仅手动触发）
+#
+#  原 GitLab 版用 `when: manual` 做人工卡点。GitHub Actions 没有等价的
+#  「手动 job」语义，改用一个只能手动触发的独立 workflow：
+#    仓库 → Actions → 左侧选 Deploy → Run workflow → 选 staging / production
+#
+#  ⛔ 两个分支目前都只是打印部署说明的占位（与原 GitLab 版一致），
+#     真实部署逻辑（K8s 滚动 / 灰度观测）落地后再往 run 里填。
+# =====================================================================
+
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: '目标环境'
+        required: true
+        type: choice
+        default: staging
+        options:
+          - staging
+          - production
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: 部署到 ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # 用 GitHub Environment 记录部署历史。
+    # 同名环境不存在时会被自动创建（不带保护规则）；
+    # 若要「必须审批才能部署」，去 Settings → Environments 给 production
+    # 加上 Required reviewers 即可，本文件不用改。
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: 部署说明
+        run: |
+          if [ "${{ inputs.environment }}" = "production" ]; then
+            echo "灰度发布：1% → 10% → 50% → 100%，每档观察 >= 24h"
+            echo "重点观测：资金不变量、对账差异数、抢单成功率"
+          else
+            echo "部署到预发环境（K8s HPA：app-api 无状态 / app-ws 按连接数扩容）"
+          fi

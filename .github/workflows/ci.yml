@@ -1,0 +1,259 @@
+# =====================================================================
+#  CI 流水线（GitHub Actions 版）
+#
+#  由 .gitlab-ci.yml 迁移而来，设计原则原样保留：
+#    ① 把「跨产物一致性门禁」放在 test 之前 —— 它最便宜（纯文本分析，秒级），
+#       却拦得住最贵的错误（文档与 DDL 矛盾、接口字段不存在）。
+#    ② 安全扫描独立成 security.yml，与主流水线并行，不阻塞反馈。
+#    ③ 任何一道门禁失败即整条流水线失败，⛔ 不允许用 continue-on-error 逃逸到主干。
+#
+#  与 GitLab 版的差异（能力模型不同，逐条对应）：
+#    · services 网络：GitLab 用 alias（主机名就是 mysql），GitHub 把容器端口
+#      映射到 runner 的 localhost ⇒ JDBC URL 必须写 127.0.0.1，⛔ 不能写 mysql。
+#    · 缓存：cache: .m2/repository → setup-java 的 cache: maven。
+#    · JUnit 报告：artifacts.reports.junit → upload-artifact（if: always()）。
+#    · when: manual 无等价物 → 见 deploy.yml（workflow_dispatch）。
+# =====================================================================
+
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# 同一 ref 的新推送取消尚未完成的旧运行（GitLab 的 interruptible 等价物）
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  MAVEN_OPTS: "-Dfile.encoding=UTF-8"
+  MAVEN_CLI: "mvn -B -ntp"
+
+jobs:
+  # -------------------------------------------------------------------
+  # lint：代码风格
+  #
+  # ⚠️ 规则集在 config/checkstyle/checkstyle.xml（刻意只留零误报、高信号的几条），
+  #    根 pom 的 maven-checkstyle-plugin 3.3.1 已把 configLocation 指向它。
+  #    ⛔ 别让它退回默认的 sun_checks.xml（要求每个方法写 Javadoc、行宽 80），
+  #       那会让 lint 阶段大面积违规、后面的 test/build 从未执行。
+  # -------------------------------------------------------------------
+  checkstyle:
+    name: checkstyle
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Checkstyle
+        run: $MAVEN_CLI -q checkstyle:check
+
+  # -------------------------------------------------------------------
+  # lint：提交规范（Conventional Commits）
+  # -------------------------------------------------------------------
+  commit-message:
+    name: 提交信息规范
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # ⚠️ 必须显式 checkout PR 的 head：默认 checkout 的是 merge commit，
+      #    `git log -1` 会拿到 "Merge ... into ..." 而误报失败。
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: 校验提交信息
+        run: |
+          MSG=$(git log -1 --pretty=%s)
+          echo "提交信息: $MSG"
+          echo "$MSG" | grep -qE '^(feat|fix|docs|refactor|test|chore|perf|build|ci)(\(.+\))?: .{4,}' \
+            || { echo "❌ 提交信息不符合 Conventional Commits"; exit 1; }
+
+  # -------------------------------------------------------------------
+  # consistency：五道跨产物门禁（⭐ 本流水线的核心价值）
+  #
+  # 为什么排这么前：文档写了 escrow.sub_amounts、DDL 里没有 ——
+  # 单看文档自洽、单看 DDL 也自洽，**矛盾只在两者之间**，人工评审两次都没发现。
+  # 这类检查是纯文本分析（秒级），却拦得住最贵的一类错误。
+  # -------------------------------------------------------------------
+  consistency-gates:
+    name: 跨产物一致性门禁（五道）
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: tools/check-consistency/package-lock.json
+      # ⭐ 「bad 组必须报错」比「good 组通过」重要 —— 防的是门禁悄悄失效
+      - name: 门禁自测（good 零违规 / bad 必须抓到）
+        working-directory: tools/check-consistency
+        run: npm ci --no-audit --no-fund && npm test
+      - name: 对真实产物执行五道门禁
+        run: node tools/check-consistency/check.mjs
+
+  # -------------------------------------------------------------------
+  # test：单元 + 集成（真实 MySQL / Redis service）
+  #
+  # ⚠️ platform-app/pom.xml 的 surefire 只覆盖 spring.datasource.*，
+  #    所以 -Dtest.db.url / -Dtest.db.password 是唯一有效的注入点
+  #    （surefire 读的是 ${test.db.url} / ${test.db.password}）。
+  #    -Dtest.redis.host 传了也不会被任何代码读取（历史遗留），
+  #    这里保留只为与 GitLab 版逐条对应。
+  # -------------------------------------------------------------------
+  unit-test:
+    name: 单元 + 集成测试
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    services:
+      mysql:
+        image: mysql:8.0.36
+        env:
+          MYSQL_ROOT_PASSWORD: root123456
+          MYSQL_DATABASE: task_platform_test
+        ports:
+          - 3306:3306
+        # ⭐ 三个 mysqld 参数必须与 deploy/docker-compose.dev.yml 和
+        #    ClockConfig（Asia/Shanghai）对齐：全库是【无时区 DATETIME】，
+        #    服务端 UTC + 应用写 +08:00 会让 DEFAULT CURRENT_TIMESTAMP 与
+        #    LocalDateTime.now(clock) 差 8 小时，任何耗时/超时/SLA 断言都会漂。
+        # ⚠️ health-cmd 不能省：MySQL 首次初始化要 20～30 秒，
+        #    没有它测试会在库就绪前开跑。
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot123456"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+          --character-set-server=utf8mb4
+          --collation-server=utf8mb4_0900_ai_ci
+          --transaction-isolation=READ-COMMITTED
+          --default-time-zone=+08:00
+      redis:
+        image: redis:7.2-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    env:
+      TEST_MYSQL_URL: "jdbc:mysql://127.0.0.1:3306/task_platform_test?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true"
+      MYSQL_ROOT_PASSWORD: root123456
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: 运行测试
+        run: |
+          $MAVEN_CLI -pl platform-app -am test \
+            -Dtest.db.url="$TEST_MYSQL_URL" \
+            -Dtest.db.password="$MYSQL_ROOT_PASSWORD" \
+            -Dtest.redis.host="127.0.0.1"
+      - name: 上传 surefire 报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports-unit
+          path: '**/target/surefire-reports/'
+          if-no-files-found: ignore
+
+  # -------------------------------------------------------------------
+  # test：并发唯一性（5000 并发抢同一单，成功数必须恒为 1）
+  # -------------------------------------------------------------------
+  concurrency-test:
+    name: 抢单并发唯一性（5000 并发）
+    needs: [unit-test]
+    if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    services:
+      mysql:
+        image: mysql:8.0.36
+        env:
+          MYSQL_ROOT_PASSWORD: root123456
+          MYSQL_DATABASE: task_platform_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot123456"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+          --character-set-server=utf8mb4
+          --collation-server=utf8mb4_0900_ai_ci
+          --transaction-isolation=READ-COMMITTED
+          --default-time-zone=+08:00
+      redis:
+        image: redis:7.2-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    env:
+      TEST_MYSQL_URL: "jdbc:mysql://127.0.0.1:3306/task_platform_test?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true"
+      MYSQL_ROOT_PASSWORD: root123456
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      # ⛔ 规模开关是 GrabConcurrencyTest 读的【系统属性】，不是 Maven profile：
+      #    两个 pom 都没有 <profiles>，`-Pconcurrency` 只会告警不报错 ⇒ 静默失效，
+      #    这个 job 就退化成把 unit-test 又跑一遍（测试默认 500 并发）。
+      - name: 并发抢单验证
+        run: |
+          $MAVEN_CLI -pl platform-app -am verify \
+            -Dgrab.concurrency=5000 \
+            -Dtest.db.url="$TEST_MYSQL_URL" \
+            -Dtest.db.password="$MYSQL_ROOT_PASSWORD" \
+            -Dtest.redis.host="127.0.0.1"
+      - name: 上传 surefire 报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports-concurrency
+          path: '**/target/surefire-reports/'
+          if-no-files-found: ignore
+
+  # -------------------------------------------------------------------
+  # build
+  # -------------------------------------------------------------------
+  build:
+    name: 打包
+    needs: [checkstyle, consistency-gates]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: 打包 jar
+        run: $MAVEN_CLI -pl platform-app -am clean package -DskipTests
+      - name: 上传 jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: platform-app-jar
+          path: platform-app/target/*.jar
+          retention-days: 7
