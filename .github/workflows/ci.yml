@@ -10,6 +10,9 @@
 #  与 GitLab 版的差异（能力模型不同，逐条对应）：
 #    · services 网络：GitLab 用 alias（主机名就是 mysql），GitHub 把容器端口
 #      映射到 runner 的 localhost ⇒ JDBC URL 必须写 127.0.0.1，⛔ 不能写 mysql。
+#    · services 参数：GitLab 的 command 是【容器命令】（可传 mysqld 参数），
+#      GitHub 的 options 是【docker create 的参数】—— mysqld 参数必须改用
+#      SET GLOBAL 设置，见各 test job 的「对齐 MySQL 服务端设置」步骤。
 #    · 缓存：cache: .m2/repository → setup-java 的 cache: maven。
 #    · JUnit 报告：artifacts.reports.junit → upload-artifact（if: always()）。
 #    · when: manual 无等价物 → 见 deploy.yml（workflow_dispatch）。
@@ -32,6 +35,9 @@ permissions:
 env:
   MAVEN_OPTS: "-Dfile.encoding=UTF-8"
   MAVEN_CLI: "mvn -B -ntp"
+  # 两个 test job 共用的库连接参数（见文件末尾的锚点说明）
+  TEST_MYSQL_URL: "jdbc:mysql://127.0.0.1:3306/task_platform_test?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true"
+  MYSQL_ROOT_PASSWORD: root123456
 
 jobs:
   # -------------------------------------------------------------------
@@ -121,12 +127,16 @@ jobs:
         env:
           MYSQL_ROOT_PASSWORD: root123456
           MYSQL_DATABASE: task_platform_test
+          # ⭐ 让容器系统时区 = 北京时间，与 ClockConfig（Asia/Shanghai）对齐
+          TZ: Asia/Shanghai
         ports:
           - 3306:3306
-        # ⭐ 三个 mysqld 参数必须与 deploy/docker-compose.dev.yml 和
-        #    ClockConfig（Asia/Shanghai）对齐：全库是【无时区 DATETIME】，
-        #    服务端 UTC + 应用写 +08:00 会让 DEFAULT CURRENT_TIMESTAMP 与
-        #    LocalDateTime.now(clock) 差 8 小时，任何耗时/超时/SLA 断言都会漂。
+        # ⛔ options 里【只能】写 docker create 的参数与 health-* 探针。
+        #    GitLab 的 services.command 是「容器命令」，能传 --character-set-server
+        #    这类 mysqld 参数；GitHub 没有对应能力 —— 写进去会被原样拼到
+        #    `docker create` 之后，docker 报 `unknown flag: --character-set-server`
+        #    并 Exit 125（实测踩过）。
+        #    服务端设置改由下面「对齐 MySQL 服务端设置」步骤用 SET GLOBAL 完成。
         # ⚠️ health-cmd 不能省：MySQL 首次初始化要 20～30 秒，
         #    没有它测试会在库就绪前开跑。
         options: >-
@@ -134,10 +144,6 @@ jobs:
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
-          --character-set-server=utf8mb4
-          --collation-server=utf8mb4_0900_ai_ci
-          --transaction-isolation=READ-COMMITTED
-          --default-time-zone=+08:00
       redis:
         image: redis:7.2-alpine
         ports:
@@ -147,9 +153,6 @@ jobs:
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
-    env:
-      TEST_MYSQL_URL: "jdbc:mysql://127.0.0.1:3306/task_platform_test?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true"
-      MYSQL_ROOT_PASSWORD: root123456
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -157,6 +160,21 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
+      # ⭐ 全库是【无时区 DATETIME】：服务端 UTC + 应用写 +08:00 会让
+      #    DEFAULT CURRENT_TIMESTAMP 与 LocalDateTime.now(clock) 差 8 小时，
+      #    任何耗时/超时/SLA 断言都会漂。
+      #    READ-COMMITTED：转账/扣减场景减少间隙锁死锁；"先检查后更新"的竞态
+      #    由条件 UPDATE 解决，不依赖可重复读。
+      #    字符集/排序规则无需处理：MySQL 8.0 的默认就是
+      #    utf8mb4 + utf8mb4_0900_ai_ci，与原 GitLab 版传的值一致。
+      - name: 对齐 MySQL 服务端设置
+        run: |
+          mysql -h 127.0.0.1 -P 3306 -uroot -p"$MYSQL_ROOT_PASSWORD" -e "
+            SET GLOBAL time_zone = '+08:00';
+            SET GLOBAL transaction_isolation = 'READ-COMMITTED';
+            ALTER DATABASE task_platform_test CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+            SELECT @@global.time_zone AS tz, @@global.transaction_isolation AS iso,
+                   @@global.character_set_server AS charset, @@global.collation_server AS collation;"
       - name: 运行测试
         run: |
           $MAVEN_CLI -pl platform-app -am test \
@@ -186,6 +204,7 @@ jobs:
         env:
           MYSQL_ROOT_PASSWORD: root123456
           MYSQL_DATABASE: task_platform_test
+          TZ: Asia/Shanghai
         ports:
           - 3306:3306
         options: >-
@@ -193,10 +212,6 @@ jobs:
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
-          --character-set-server=utf8mb4
-          --collation-server=utf8mb4_0900_ai_ci
-          --transaction-isolation=READ-COMMITTED
-          --default-time-zone=+08:00
       redis:
         image: redis:7.2-alpine
         ports:
@@ -206,9 +221,6 @@ jobs:
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
-    env:
-      TEST_MYSQL_URL: "jdbc:mysql://127.0.0.1:3306/task_platform_test?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true"
-      MYSQL_ROOT_PASSWORD: root123456
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -216,6 +228,12 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
+      - name: 对齐 MySQL 服务端设置
+        run: |
+          mysql -h 127.0.0.1 -P 3306 -uroot -p"$MYSQL_ROOT_PASSWORD" -e "
+            SET GLOBAL time_zone = '+08:00';
+            SET GLOBAL transaction_isolation = 'READ-COMMITTED';
+            ALTER DATABASE task_platform_test CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;"
       # ⛔ 规模开关是 GrabConcurrencyTest 读的【系统属性】，不是 Maven profile：
       #    两个 pom 都没有 <profiles>，`-Pconcurrency` 只会告警不报错 ⇒ 静默失效，
       #    这个 job 就退化成把 unit-test 又跑一遍（测试默认 500 并发）。
